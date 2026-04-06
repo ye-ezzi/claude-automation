@@ -1,46 +1,43 @@
 #!/bin/bash
 # setup_cron.sh
 # 크론 등록:
-#   - 매일 오전 09:00 → run_reels_planner.sh  (릴스 아이디어 생성 + 발송)
-#   - 매일 오후 21:00 → run_reels_monitor.sh   (릴스 번역 모니터링)
+#   - 매일 오전 09:00 → run_reels_planner.sh   (AI/디자인 릴스 아이디어)
+#   - 매일 오전 09:00 → run_finance_planner.sh  (재테크 릴스 아이디어)
+#
+# * reels_translator.py (릴스 번역 모니터)는 별도 컴퓨터에서 실행 중 — 여기선 등록 안 함
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PLANNER_RUNNER="${SCRIPT_DIR}/run_reels_planner.sh"
-MONITOR_RUNNER="${SCRIPT_DIR}/run_reels_monitor.sh"
+AI_RUNNER="${SCRIPT_DIR}/run_reels_planner.sh"
+FINANCE_RUNNER="${SCRIPT_DIR}/run_finance_planner.sh"
 
-chmod +x "$PLANNER_RUNNER"
-chmod +x "$MONITOR_RUNNER"
+chmod +x "$AI_RUNNER"
+chmod +x "$FINANCE_RUNNER"
 
-PLANNER_CRON="0 9 * * * $PLANNER_RUNNER"
-MONITOR_CRON="0 21 * * * $MONITOR_RUNNER"
-
-CURRENT_CRONTAB=$(crontab -l 2>/dev/null || true)
-NEW_CRONTAB="$CURRENT_CRONTAB"
+CURRENT=$(crontab -l 2>/dev/null || true)
+NEW="$CURRENT"
 CHANGED=0
 
-if echo "$CURRENT_CRONTAB" | grep -qF "$PLANNER_RUNNER"; then
-    echo "✅ 릴스 플래너 크론 이미 등록됨:"
-    echo "   $(echo "$CURRENT_CRONTAB" | grep "$PLANNER_RUNNER")"
+if echo "$CURRENT" | grep -qF "$AI_RUNNER"; then
+    echo "✅ AI 릴스 플래너 크론 이미 등록됨"
 else
-    NEW_CRONTAB="${NEW_CRONTAB}
-${PLANNER_CRON}"
+    NEW="${NEW}
+0 9 * * * $AI_RUNNER"
     CHANGED=1
-    echo "➕ 릴스 플래너 크론 등록: $PLANNER_CRON"
+    echo "➕ AI 릴스 플래너 등록: 0 9 * * * $AI_RUNNER"
 fi
 
-if echo "$CURRENT_CRONTAB" | grep -qF "$MONITOR_RUNNER"; then
-    echo "✅ 릴스 모니터 크론 이미 등록됨:"
-    echo "   $(echo "$CURRENT_CRONTAB" | grep "$MONITOR_RUNNER")"
+if echo "$CURRENT" | grep -qF "$FINANCE_RUNNER"; then
+    echo "✅ 재테크 릴스 플래너 크론 이미 등록됨"
 else
-    NEW_CRONTAB="${NEW_CRONTAB}
-${MONITOR_CRON}"
+    NEW="${NEW}
+0 9 * * * $FINANCE_RUNNER"
     CHANGED=1
-    echo "➕ 릴스 모니터 크론 등록: $MONITOR_CRON"
+    echo "➕ 재테크 릴스 플래너 등록: 0 9 * * * $FINANCE_RUNNER"
 fi
 
 if [ "$CHANGED" -eq 1 ]; then
-    echo "$NEW_CRONTAB" | crontab -
+    echo "$NEW" | crontab -
     echo ""
     echo "현재 등록된 크론:"
     crontab -l
