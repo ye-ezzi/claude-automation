@@ -208,6 +208,19 @@ def sort_by_views(reels: list) -> list:
 
 # ─── 음성 처리 ───────────────────────────────────
 
+def _find_ffmpeg() -> str:
+    """ffmpeg 경로 자동 탐색 (brew 설치 경로 포함)"""
+    import shutil
+    for path in [
+        shutil.which("ffmpeg"),
+        "/opt/homebrew/bin/ffmpeg",   # Apple Silicon Mac
+        "/usr/local/bin/ffmpeg",       # Intel Mac
+    ]:
+        if path and os.path.exists(path):
+            return os.path.dirname(path)
+    return ""
+
+
 def download_audio(url: str, output_path: str) -> str:
     """릴스에서 음성만 추출"""
     ydl_opts = {
@@ -222,6 +235,7 @@ def download_audio(url: str, output_path: str) -> str:
         "noprogress": True,
         "no_warnings": True,
         "cookiesfrombrowser": ("chrome",),
+        "ffmpeg_location": _find_ffmpeg(),
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -413,8 +427,10 @@ def run_report(model):
 
 
 def run_monitor(model):
-    """모니터링 계정의 오늘 업로드된 릴스 확인 및 알림"""
+    """모니터링 계정의 오늘 업로드된 릴스 확인 및 알림 (전체 1통)"""
     print("\n🔔  오늘 업로드된 릴스 확인...")
+
+    account_results = []
 
     for account_url in MONITOR_ACCOUNTS:
         username = _url_to_username(account_url)
@@ -429,14 +445,19 @@ def run_monitor(model):
                 result = process_reel(reel, model, index=i)
                 processed.append(result)
                 time.sleep(2)
-
-            print("  📬  오늘자 알림 이메일 발송 중...")
-            subject = f"📅 오늘의 릴스 — @{username} ({len(processed)}개) {datetime.now().strftime('%Y.%m.%d')}"
-            html = build_alert_html(processed, account_url)
-            send_gmail(subject, html)
-            print("  ✅  알림 발송 완료!")
+            account_results.append((account_url, processed))
         else:
             print("  → 오늘 업로드된 게시물 없음")
+
+    if account_results:
+        total = sum(len(reels) for _, reels in account_results)
+        print("\n📬  오늘자 알림 이메일 발송 중...")
+        subject = f"📅 오늘의 릴스 — {len(account_results)}개 계정 · {total}개 ({datetime.now().strftime('%Y.%m.%d')})"
+        html = build_report_html(account_results)
+        send_gmail(subject, html)
+        print("✅  알림 발송 완료!")
+    else:
+        print("\n오늘 업로드된 게시물 없음 — 이메일 발송 생략")
 
 
 def main():
