@@ -1,17 +1,18 @@
 """
-인스타그램 릴스 플래너 — 매일 오전 9시 자동 실행
+AI/콘텐츠 릴스 + 피드 플래너 — 매일 오전 9시 자동 실행
 =====================================================
-STEP 1. Google Sheets (Apps Script)에서 기존 콘텐츠 패턴 수집
-STEP 2. 오늘의 AI/디자인/크리에이터 트렌드 웹 서치
+STEP 1. Google Sheets에서 AI/디자인 콘텐츠 패턴 수집
+STEP 2. 오늘의 AI툴 / 디자인 / 크리에이터 트렌드 웹 서치
 STEP 3. Claude API로 릴스 아이디어 20개 생성
-STEP 4. Gmail로 자동 발송 (실패 시 파일 저장)
+STEP 4. Claude API로 피드(카드뉴스) 아이디어 20개 생성
+STEP 5. Gmail로 자동 발송 (실패 시 파일 저장)
 
 필요 패키지:
-  pip install anthropic requests duckduckgo-search
+  pip install anthropic requests ddgs
 """
 
 import os
-import json
+import re
 import time
 import smtplib
 import requests
@@ -37,9 +38,9 @@ SHEETS_URL = (
     "/exec?action=readSheet&sheet=Posts"
 )
 
-OUTPUT_DIR = "/sessions/magical-blissful-bohr/mnt/outputs"
+OUTPUT_DIR = os.path.expanduser("~/reels_outputs")
 
-# 폴백 데이터 (시트 접근 실패 시)
+# ── 폴백 패턴 (시트 접근 실패 시) ──────────────────────
 FALLBACK_PATTERNS = {
     "thumbnail": [
         "Gemini 3 말도 안돼... 놀라운 활용사례 6가지 → 감탄 + 숫자형",
@@ -56,13 +57,19 @@ FALLBACK_PATTERNS = {
     ],
 }
 
+ACCOUNT_DNA = """## 계정 DNA
+- **타겟:** 20-30대 디자이너, 크리에이터, 프리랜서
+- **주제:** AI 툴 & 워크플로우 / AI 디자인 / 콘텐츠 전략 / 프리랜서 비즈니스 / 생산성 해킹
+- **톤앤매너:** 친절한 선배 느낌 — 따뜻하고 실용적, "몰랐지?" 모먼트 풍부, 절대 설교하지 않음
+- **훅 스타일:** 팁 선행형, 호기심 유발형, 공감형 — 항상 따뜻하고 직접적
+- **피해야 할 것:** 이론적인 내용, 비싼 장비/팀이 필요한 아이디어, 실행 불가능한 막연한 조언"""
+
 
 # ══════════════════════════════════════════
 # STEP 1 — Google Sheets 데이터 수집
 # ══════════════════════════════════════════
 
 def fetch_sheet_data():
-    """Google Apps Script URL에서 시트 데이터 가져와 AI/디자인 행만 필터링"""
     print("📊 [STEP 1] Google Sheets 데이터 수집 중...")
     try:
         resp = requests.get(SHEETS_URL, timeout=15)
@@ -70,7 +77,6 @@ def fetch_sheet_data():
         data = resp.json()
         results = data.get("results", [])
 
-        # AI/디자인 관련 행만 필터링
         filtered = [
             r for r in results
             if "AI" in str(r.get("분야", "")) or "디자인" in str(r.get("분야", ""))
@@ -96,13 +102,12 @@ def fetch_sheet_data():
 # ══════════════════════════════════════════
 
 def search_trends():
-    """duckduckgo-search로 오늘의 AI/디자인/크리에이터 트렌드 수집"""
     print("\n🔍 [STEP 2] 오늘의 트렌드 수집 중...")
 
     categories = {
-        "AI 툴 & 생산성":    "AI tools productivity new launch update site:techcrunch.com OR site:theverge.com OR site:venturebeat.com",
+        "AI 툴 & 생산성":     "AI tools productivity new launch update site:techcrunch.com OR site:theverge.com OR site:venturebeat.com",
         "디자인 & 크리에이티브": "Canva AI Midjourney Figma Adobe Firefly design tools trending update",
-        "크리에이터 이코노미":  "Instagram Reels creator monetization freelance market trends",
+        "크리에이터 이코노미":   "Instagram Reels creator monetization freelance market trends",
     }
     trends = {cat: [] for cat in categories}
 
@@ -119,13 +124,13 @@ def search_trends():
                     "url":     r.get("href", ""),
                 })
             print(f"  → {cat}: {len(trends[cat])}개 수집")
-            time.sleep(1.2)  # 과도한 요청 방지
+            time.sleep(1.2)
 
     except Exception as e:
         print(f"  ⚠️  웹 서치 실패 ({e}) → 기본 트렌드 사용")
         trends = {
             "AI 툴 & 생산성": [
-                {"title": "Claude AI 최신 업데이트", "snippet": "Anthropic의 Claude가 새로운 기능을 출시했습니다. 크리에이터들 사이에서 화제입니다.", "url": ""},
+                {"title": "Claude AI 최신 업데이트", "snippet": "Anthropic의 Claude가 새로운 기능을 출시했습니다.", "url": ""},
                 {"title": "GPT-4o 이미지 생성 화제", "snippet": "ChatGPT의 이미지 생성 기능이 디자이너들의 워크플로우를 바꾸고 있습니다.", "url": ""},
             ],
             "디자인 & 크리에이티브": [
@@ -142,20 +147,28 @@ def search_trends():
 
 
 # ══════════════════════════════════════════
-# STEP 3 — Claude API로 아이디어 20개 생성
+# STEP 3 — 릴스 아이디어 20개 생성
 # ══════════════════════════════════════════
 
-def build_prompt(patterns: dict, trends: dict) -> str:
+def build_reels_prompt(patterns: dict, trends: dict) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
 
-    # 패턴 요약 텍스트
     thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:8]
     hooks_3sec = patterns.get("hook_3sec", [])[:5]
     hooks_copy = patterns.get("hook_copy", [])[:5]
     captions   = patterns.get("caption",   FALLBACK_PATTERNS["caption"])[:4]
 
-    pattern_section = f"""## 실제 시트에서 추출한 콘텐츠 패턴
+    trend_lines = []
+    for cat, items in trends.items():
+        trend_lines.append(f"\n**{cat}:**")
+        for item in items:
+            trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
 
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
+
+{ACCOUNT_DNA}
+
+## 실제 시트 패턴
 **썸네일 문구 패턴:**
 {chr(10).join(f"- {t}" for t in thumbnails)}
 
@@ -166,37 +179,19 @@ def build_prompt(patterns: dict, trends: dict) -> str:
 {chr(10).join(f"- {h}" for h in hooks_copy) if hooks_copy else "- (시트 데이터 없음 → 폴백 참고)"}
 
 **캡션 구조:**
-{chr(10).join(f"- {c}" for c in captions)}"""
-
-    # 트렌드 요약 텍스트
-    trend_lines = []
-    for cat, items in trends.items():
-        trend_lines.append(f"\n**{cat}:**")
-        for item in items:
-            trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
-    trend_section = "\n".join(trend_lines)
-
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
-
-## 계정 DNA
-- **타겟:** 20-30대 디자이너, 크리에이터, 프리랜서
-- **주제:** AI 툴 & 워크플로우 / AI 디자인 / 콘텐츠 전략 / 프리랜서 비즈니스 / 생산성 해킹
-- **톤앤매너:** 친절한 선배 느낌 — 따뜻하고 실용적, "몰랐지?" 모먼트 풍부, 절대 설교하지 않음
-- **훅 스타일:** 팁 선행형, 호기심 유발형, 공감형 — 항상 따뜻하고 직접적
-
-{pattern_section}
+{chr(10).join(f"- {c}" for c in captions)}
 
 ## 오늘의 트렌드
-{trend_section}
+{"".join(trend_lines)}
 
 ## 아이디어 20개 생성 규칙
 - 최소 6개: 특정 AI 툴/워크플로우 (GPT, Gemini, Canva AI, Midjourney, Firefly 등 툴명 반드시 명시)
 - 최소 4개: AI × 디자인 (이미지 생성, 디자인 자동화, 브랜드킷, 목업 생성 등)
 - 최소 4개: 프리랜서 실전 (가격 책정, 클라이언트 관리, 포트폴리오, 제안서 작성)
 - 최소 3개: 콘텐츠 제작 / 인스타그램 성장 팁
-- 나머지 3개: 오늘 트렌드 반응형 (위 트렌드 데이터 기반)
+- 나머지 3개: 오늘 트렌드 반응형
 
-## 출력 형식 (정확히 이 형식을 따를 것, 20개 모두)
+## 출력 형식 (정확히 이 형식, 20개 모두)
 
 ---
 
@@ -217,33 +212,102 @@ def build_prompt(patterns: dict, trends: dict) -> str:
 - 캡션 오프닝은 공감 또는 감탄 → 핵심 팁 → CTA 순서"""
 
 
-def generate_ideas(patterns: dict, trends: dict) -> str:
-    """Claude API (streaming)로 릴스 아이디어 20개 생성"""
-    print("\n🤖 [STEP 3] Claude API로 릴스 아이디어 생성 중...")
+def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic) -> str:
+    print("\n🤖 [STEP 3] 릴스 아이디어 20개 생성 중...")
+    prompt = build_reels_prompt(patterns, trends)
 
-    if not ANTHROPIC_API_KEY:
-        raise EnvironmentError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    prompt = build_prompt(patterns, trends)
-
-    ideas_text = ""
+    text = ""
     with client.messages.stream(
         model="claude-opus-4-6",
         max_tokens=8000,
         thinking={"type": "adaptive"},
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
-        for text in stream.text_stream:
-            ideas_text += text
-            print(text, end="", flush=True)
+        for chunk in stream.text_stream:
+            text += chunk
+            print(chunk, end="", flush=True)
 
-    print("\n  ✅ 아이디어 생성 완료")
-    return ideas_text
+    print("\n  ✅ 릴스 아이디어 생성 완료")
+    return text
 
 
 # ══════════════════════════════════════════
-# STEP 4 — Gmail 발송
+# STEP 4 — 피드(카드뉴스) 아이디어 20개 생성
+# ══════════════════════════════════════════
+
+def build_feed_prompt(patterns: dict, trends: dict) -> str:
+    today = datetime.now().strftime("%Y년 %m월 %d일")
+
+    trend_lines = []
+    for cat, items in trends.items():
+        trend_lines.append(f"\n**{cat}:**")
+        for item in items:
+            trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
+
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 20개를 생성해주세요.
+
+{ACCOUNT_DNA}
+
+## 오늘의 트렌드
+{"".join(trend_lines)}
+
+## 피드 아이디어 20개 생성 규칙
+- 최소 6개: 특정 AI 툴/워크플로우 (툴명 반드시 명시)
+- 최소 4개: AI × 디자인 (이미지 생성, 디자인 자동화 등)
+- 최소 4개: 프리랜서 실전 팁 (저장하고 싶은 정보성)
+- 최소 3개: 콘텐츠 제작 / 인스타그램 성장
+- 나머지 3개: 오늘 트렌드 반응형
+- 체크리스트·비교표·단계별 가이드 형식 선호
+- 커버 카드는 반드시 숫자 또는 질문으로 시작
+- 댓글 키워드 DM 전략 20개 중 최소 5개 적용
+
+## 출력 형식 (정확히 이 형식, 20개 모두)
+
+---
+
+**피드 아이디어 #N**
+
+1. **아이디어 제목:** [짧고 명확한 제목]
+2. **카드 구성:** [슬라이드 수 — 예: 5장, 7장. 최대 10장]
+3. **커버 카드 카피:** [첫 번째 슬라이드 훅 문구. 한 줄로 시선 잡기. 숫자·질문·반전 중 하나 활용]
+4. **슬라이드별 내용 요약:**
+   - 1장: [커버 훅]
+   - 2장: [본문 핵심 내용 1]
+   - 3장: [본문 핵심 내용 2]
+   - ...마지막 장: [정리 + CTA]
+5. **디자인 방향:** [배경색 톤, 폰트 무드, 핵심 시각 요소 — 1-2줄]
+6. **캡션 첫 줄:** [피드 캡션 첫 문장 — 검색 유입과 저장 유도. 댓글 키워드 CTA 적극 활용]
+
+---
+
+**중요 원칙:**
+- 커버는 숫자 또는 질문으로 반드시 시작
+- 댓글 키워드 CTA: "댓글에 'XX' 남겨주시면 자료 보내드립니다" 패턴 20개 중 최소 5개 적용
+- 모든 아이디어는 스마트폰 + 무료 툴(Canva 등)로 제작 가능해야 함
+- 저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호"""
+
+
+def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic) -> str:
+    print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 20개 생성 중...")
+    prompt = build_feed_prompt(patterns, trends)
+
+    text = ""
+    with client.messages.stream(
+        model="claude-opus-4-6",
+        max_tokens=8000,
+        thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for chunk in stream.text_stream:
+            text += chunk
+            print(chunk, end="", flush=True)
+
+    print("\n  ✅ 피드 아이디어 생성 완료")
+    return text
+
+
+# ══════════════════════════════════════════
+# STEP 5 — Gmail 발송
 # ══════════════════════════════════════════
 
 def build_trend_html(trends: dict) -> str:
@@ -255,49 +319,35 @@ def build_trend_html(trends: dict) -> str:
             title   = item.get("title", "")
             snippet = item.get("snippet", "")[:150]
             url     = item.get("url", "")
-            if url:
-                html += f'<li style="margin-bottom:8px;"><a href="{url}" style="color:#2D2D2D;font-weight:bold;">{title}</a><br><span style="color:#666;font-size:12px;">{snippet}</span></li>'
-            else:
-                html += f'<li style="margin-bottom:8px;"><strong>{title}</strong><br><span style="color:#666;font-size:12px;">{snippet}</span></li>'
+            link    = f'<a href="{url}" style="color:#1a1a1a;font-weight:bold;">{title}</a>' if url else f"<strong>{title}</strong>"
+            html   += f'<li style="margin-bottom:8px;">{link}<br><span style="color:#666;font-size:12px;">{snippet}</span></li>'
         html += "</ul>"
     return html
 
 
-def ideas_to_html(ideas_raw: str) -> str:
-    """마크다운 아이디어 텍스트를 HTML로 변환"""
-    import re
-
-    html = ideas_raw
-
-    # 구분선
+def content_to_html(raw: str, icon: str, id_prefix: str) -> str:
+    html = raw
     html = re.sub(r"\n---\n", '\n<hr style="border:none;border-top:1px solid #EBEBEB;margin:24px 0;">\n', html)
-
-    # **아이디어 #N** → h3
     html = re.sub(
-        r"\*\*(아이디어 #\d+)\*\*",
-        r'<h3 style="color:#1a1a1a;font-size:16px;margin:20px 0 12px;">💡 \1</h3>',
+        rf"\*\*({id_prefix} #\d+)\*\*",
+        rf'<h3 style="color:#1a1a1a;font-size:16px;margin:20px 0 12px;">{icon} \1</h3>',
         html
     )
-
-    # **굵게** → <strong>
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-
-    # 줄바꿈
     html = html.replace("\n", "<br>")
-
     return html
 
 
-def build_email_html(sheet_success: bool, trends: dict, ideas: str) -> str:
+def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str) -> str:
     today_kr    = datetime.now().strftime("%Y년 %m월 %d일")
     now_str     = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
     data_status = "✅ 실시간 시트 데이터 반영" if sheet_success else "⚠️ 폴백 데이터 사용"
 
     return f"""<!DOCTYPE html>
-<html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:720px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
+<html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:760px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
 
   <h2 style="color:#2D2D2D;border-bottom:3px solid #4A90D9;padding-bottom:10px;margin-bottom:20px;">
-    🎬 AI/콘텐츠 릴스 아이디어 20개 — {today_kr}
+    🎬 AI/콘텐츠 — 릴스 20 + 피드 20 — {today_kr}
   </h2>
 
   <div style="background:#F0F7FF;border-left:4px solid #4A90D9;padding:10px 16px;margin-bottom:28px;border-radius:4px;">
@@ -307,27 +357,31 @@ def build_email_html(sheet_success: bool, trends: dict, ideas: str) -> str:
   <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #EBEBEB;padding-bottom:8px;margin-bottom:16px;">
     📈 오늘의 트렌드
   </h2>
-  <div style="margin-bottom:36px;">
-    {build_trend_html(trends)}
+  <div style="margin-bottom:36px;">{build_trend_html(trends)}</div>
+
+  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #4A90D9;padding-bottom:8px;margin-bottom:16px;">
+    🎬 릴스 아이디어 20개
+  </h2>
+  <div style="line-height:1.8;font-size:14px;margin-bottom:48px;">
+    {content_to_html(reels, "🎬", "아이디어")}
   </div>
 
-  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #EBEBEB;padding-bottom:8px;margin-bottom:16px;">
-    💡 오늘의 릴스 아이디어 20개
+  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #4A90D9;padding-bottom:8px;margin-bottom:16px;">
+    🗂️ 피드(카드뉴스) 아이디어 20개
   </h2>
   <div style="line-height:1.8;font-size:14px;">
-    {ideas_to_html(ideas)}
+    {content_to_html(feed, "🗂️", "피드 아이디어")}
   </div>
 
   <p style="color:#bbb;font-size:11px;margin-top:40px;text-align:right;">
-    자동 생성 — {now_str} | reels_planner.py
+    자동 생성 — {now_str} | AI_reels_planner.py
   </p>
 
 </body></html>"""
 
 
 def send_gmail(subject: str, html_body: str):
-    """Gmail SMTP SSL로 발송"""
-    print("\n📬 [STEP 4] Gmail 발송 중...")
+    print("\n📬 [STEP 5] Gmail 발송 중...")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = GMAIL_ADDRESS
@@ -340,20 +394,14 @@ def send_gmail(subject: str, html_body: str):
     print("  ✅ 이메일 발송 완료!")
 
 
-def save_fallback(ideas: str, today_str: str):
-    """Gmail 발송 실패 시 마크다운 파일로 저장"""
-    try:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-    except Exception:
-        OUTPUT_DIR_LOCAL = os.path.expanduser("~/reels_outputs")
-        os.makedirs(OUTPUT_DIR_LOCAL, exist_ok=True)
-        path = os.path.join(OUTPUT_DIR_LOCAL, f"reels-ai-{today_str}.md")
-    else:
-        path = os.path.join(OUTPUT_DIR, f"reels-ai-{today_str}.md")
-
+def save_fallback(reels: str, feed: str, today_str: str):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(OUTPUT_DIR, f"reels-ai-{today_str}.md")
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"# AI/콘텐츠 릴스 아이디어 20개 — {today_str}\n\n")
-        f.write(ideas)
+        f.write(f"# AI/콘텐츠 — {today_str}\n\n## 릴스 아이디어 20개\n\n")
+        f.write(reels)
+        f.write("\n\n## 피드(카드뉴스) 아이디어 20개\n\n")
+        f.write(feed)
     print(f"  💾 폴백 저장 완료: {path}")
 
 
@@ -364,30 +412,30 @@ def save_fallback(ideas: str, today_str: str):
 def main():
     today_str = datetime.now().strftime("%Y-%m-%d")
     print(f"\n{'='*55}")
-    print(f"  🚀 릴스 플래너 시작 — {today_str}")
+    print(f"  🚀 AI 릴스+피드 플래너 시작 — {today_str}")
     print(f"{'='*55}\n")
 
-    # STEP 1: 시트 데이터
+    if not ANTHROPIC_API_KEY:
+        raise EnvironmentError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
     patterns, sheet_success = fetch_sheet_data()
+    trends  = search_trends()
+    reels   = generate_reels(patterns, trends, client)
+    feed    = generate_feed(patterns, trends, client)
 
-    # STEP 2: 트렌드
-    trends = search_trends()
-
-    # STEP 3: 아이디어 생성
-    ideas = generate_ideas(patterns, trends)
-
-    # STEP 4: 발송
-    subject  = f"[AI/콘텐츠 릴스] 오늘의 아이디어 20개 — {today_str}"
-    html_body = build_email_html(sheet_success, trends, ideas)
+    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str}"
+    html_body = build_email_html(sheet_success, trends, reels, feed)
 
     try:
         send_gmail(subject, html_body)
     except Exception as e:
         print(f"  ❌ Gmail 발송 실패: {e} → 파일 저장으로 대체")
-        save_fallback(ideas, today_str)
+        save_fallback(reels, feed, today_str)
 
     print(f"\n{'='*55}")
-    print("  ✅ 릴스 플래너 완료!")
+    print("  ✅ AI 릴스+피드 플래너 완료!")
     print(f"{'='*55}\n")
 
 
