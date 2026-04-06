@@ -107,7 +107,7 @@ def search_trends():
     trends = {cat: [] for cat in categories}
 
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         ddgs = DDGS()
 
         for cat, query in categories.items():
