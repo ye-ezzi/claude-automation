@@ -1,0 +1,5 @@
+yt-dlp
+openai-whisper
+deep-translator
+browser-cookie3
+requests
