@@ -2,6 +2,8 @@
 # run_reels_monitor.sh
 # Runs reels_translator.py --monitor and emails results to lyj990701@gmail.com
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PYTHON="${SCRIPT_DIR}/venv/bin/python3"
 TO_EMAIL="lyj990701@gmail.com"
 LOG_DIR="/Users/comcom/logs"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -9,9 +11,15 @@ LOG_FILE="${LOG_DIR}/reels_monitor_$(date '+%Y-%m-%d').log"
 
 mkdir -p "$LOG_DIR"
 
+# 가상환경이 없으면 자동 설치
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "[$TIMESTAMP] 가상환경이 없습니다. 자동 설치 중..." >> "$LOG_FILE"
+    bash "${SCRIPT_DIR}/setup_venv.sh" >> "$LOG_FILE" 2>&1
+fi
+
 echo "[$TIMESTAMP] Starting reels_translator.py --monitor" >> "$LOG_FILE"
 
-OUTPUT=$(cd /Users/comcom && python3 reels_translator.py --monitor 2>&1)
+OUTPUT=$(cd "$SCRIPT_DIR" && "$VENV_PYTHON" reels_translator.py --monitor 2>&1)
 EXIT_CODE=$?
 
 echo "$OUTPUT" >> "$LOG_FILE"
