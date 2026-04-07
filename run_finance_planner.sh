@@ -16,7 +16,7 @@ if [ -z "$ANTHROPIC_API_KEY" ] && [ -f "${SCRIPT_DIR}/.env" ]; then
     export $(grep -v '^#' "${SCRIPT_DIR}/.env" | xargs)
 fi
 
-OUTPUT=$(cd "$SCRIPT_DIR" && python3 finance_reels_planner.py 2>&1)
+OUTPUT=$(cd "$SCRIPT_DIR" && "${SCRIPT_DIR}/venv/bin/python3" finance_reels_planner.py 2>&1)
 EXIT_CODE=$?
 
 echo "$OUTPUT" >> "$LOG_FILE"
