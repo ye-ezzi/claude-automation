@@ -289,11 +289,11 @@ def process_reel(reel: dict, model, index: int) -> dict:
 
 # ─── 모니터링 ────────────────────────────────────
 
-def find_todays_reels(account_url: str) -> list:
-    """오늘 업로드된 릴스만 반환"""
-    today = datetime.now().strftime("%Y%m%d")
+def find_todays_reels(account_url: str, target_date: str = None) -> list:
+    """특정 날짜에 업로드된 릴스 반환 (기본값: 오늘)"""
+    date = target_date or datetime.now().strftime("%Y%m%d")
     reels = get_reels_metadata(account_url, max_items=20)
-    return [r for r in reels if r.get("upload_date") == today]
+    return [r for r in reels if r.get("upload_date") == date]
 
 
 # ─── 이메일 빌더 ─────────────────────────────────
@@ -426,9 +426,10 @@ def run_report(model):
         print("✅  리포트 발송 완료!")
 
 
-def run_monitor(model):
+def run_monitor(model, target_date: str = None):
     """모니터링 계정의 오늘 업로드된 릴스 확인 및 알림 (전체 1통)"""
-    print("\n🔔  오늘 업로드된 릴스 확인...")
+    label = target_date or datetime.now().strftime("%Y%m%d")
+    print(f"\n🔔  릴스 확인 ({label})...")
 
     account_results = []
 
@@ -436,8 +437,8 @@ def run_monitor(model):
         username = _url_to_username(account_url)
         print(f"[모니터] @{username}")
 
-        todays_reels = find_todays_reels(account_url)
-        print(f"  → 오늘 업로드된 릴스: {len(todays_reels)}개")
+        todays_reels = find_todays_reels(account_url, target_date)
+        print(f"  → 업로드된 릴스: {len(todays_reels)}개")
 
         if todays_reels:
             processed = []
@@ -464,6 +465,12 @@ def main():
     os.makedirs(TEMP_DIR, exist_ok=True)
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    # 날짜 지정: python3 reels_translator.py --monitor --date 20260407
+    target_date = None
+    if "--date" in sys.argv:
+        idx = sys.argv.index("--date")
+        if idx + 1 < len(sys.argv):
+            target_date = sys.argv[idx + 1]
 
     print("🔄  Whisper 모델 로딩 중...")
     model = whisper.load_model(WHISPER_MODEL)
@@ -473,7 +480,7 @@ def main():
         run_report(model)
 
     if mode in ("all", "--monitor"):
-        run_monitor(model)
+        run_monitor(model, target_date)
 
 
 if __name__ == "__main__":
