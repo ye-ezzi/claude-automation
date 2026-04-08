@@ -452,13 +452,14 @@ def run_monitor(model, target_date: str = None):
 
     if account_results:
         total = sum(len(reels) for _, reels in account_results)
-        print("\n📬  오늘자 알림 이메일 발송 중...")
-        subject = f"📅 오늘의 릴스 — {len(account_results)}개 계정 · {total}개 ({datetime.now().strftime('%Y.%m.%d')})"
+        date_str = datetime.strptime(label, "%Y%m%d").strftime("%Y.%m.%d")
+        print("\n📬  알림 이메일 발송 중...")
+        subject = f"📅 오늘의 릴스 — {len(account_results)}개 계정 · {total}개 ({date_str})"
         html = build_report_html(account_results)
         send_gmail(subject, html)
         print("✅  알림 발송 완료!")
     else:
-        print("\n오늘 업로드된 게시물 없음 — 이메일 발송 생략")
+        print("\n업로드된 게시물 없음 — 이메일 발송 생략")
 
 
 def main():
