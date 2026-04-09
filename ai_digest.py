@@ -15,7 +15,7 @@ Instagram (Chrome cookie) + X (twscrape) → 중복제거 → 이메일 발송
 
 매일 실행:
     python ai_digest.py --ig-only
-    또는 cron: 0 7 * * * /usr/bin/python3 /path/to/ai_digest.py --ig-only
+    또는 cron: 0 8 * * * cd /Users/comcom && source venv/bin/activate && GMAIL_APP_PASSWORD='...' python3 ai_digest.py --ig-only
 """
 
 import asyncio
@@ -47,6 +47,11 @@ CONFIG = {
         "vizznary",
         "elicoleman_",
         "digitalbynana",
+        "stevenwommack",
+        "why.cgi",
+        "tumifnx",
+        "anotherworldcore",
+        "re4ee",
     ],
 
     # X 계정 (@ 제외)
@@ -77,7 +82,7 @@ CONFIG = {
     "smtp_host": "smtp.gmail.com",
     "smtp_port": 587,
     "sender_email": "lyj990701@gmail.com",
-    "sender_password": os.environ.get("GMAIL_APP_PASSWORD", ""),  # export GMAIL_APP_PASSWORD='...' 로 설정
+    "sender_password": os.environ.get("GMAIL_APP_PASSWORD", ""),
     "recipient_email": "lyj990701@gmail.com",
 
     # 중복 추적 파일 경로
@@ -171,6 +176,7 @@ def scrape_instagram() -> list[dict]:
             cursor = None
             done = False
 
+            # 피드 수집
             while not done:
                 params = {"count": 12, "user_id": user_id}
                 if cursor:
@@ -183,12 +189,13 @@ def scrape_instagram() -> list[dict]:
                     break
                 data = resp.json()
 
+                page_has_recent = False
                 for item in data.get("items", []):
                     taken_at = item.get("taken_at", 0)
                     post_date = datetime.fromtimestamp(taken_at, tz=timezone.utc)
                     if post_date < cutoff:
-                        done = True
-                        break
+                        continue  # 고정 게시물 등 오래된 것은 건너뜀
+                    page_has_recent = True
                     is_video = item.get("media_type") == 2
                     views = item.get("view_count") or item.get("play_count") or 0
                     likes = item.get("like_count") or 0
@@ -207,9 +214,59 @@ def scrape_instagram() -> list[dict]:
                         "is_video": is_video,
                     })
 
+                # 페이지 전체가 오래된 게시물이면 더 이상 페이지 없음
+                if not page_has_recent:
+                    done = True
                 if not data.get("more_available") or not data.get("next_max_id"):
                     break
                 cursor = data["next_max_id"]
+                time.sleep(1)
+
+            # 릴스 별도 수집 (clips API)
+            reels_cursor = None
+            reels_done = False
+            while not reels_done:
+                payload = {"target_user_id": user_id, "page_size": 12}
+                if reels_cursor:
+                    payload["max_id"] = reels_cursor
+                r2 = session.post(
+                    "https://www.instagram.com/api/v1/clips/user/",
+                    data=payload, timeout=15
+                )
+                if r2.status_code != 200:
+                    break
+                rdata = r2.json()
+                page_has_recent = False
+                for item in rdata.get("items", []):
+                    media = item.get("media", item)
+                    taken_at = media.get("taken_at", 0)
+                    post_date = datetime.fromtimestamp(taken_at, tz=timezone.utc)
+                    if post_date < cutoff:
+                        continue
+                    page_has_recent = True
+                    views = media.get("view_count") or media.get("play_count") or 0
+                    likes = media.get("like_count") or 0
+                    shortcode = media.get("code", media.get("id", ""))
+                    cap = media.get("caption") or {}
+                    caption_text = cap.get("text", "") if isinstance(cap, dict) else ""
+                    pid = f"ig_{shortcode}"
+                    if not any(p["id"] == pid for p in posts):
+                        posts.append({
+                            "id": pid,
+                            "platform": "instagram",
+                            "channel": f"@{channel}",
+                            "caption": caption_text[:200],
+                            "views": views,
+                            "likes": likes,
+                            "url": f"https://www.instagram.com/reel/{shortcode}/",
+                            "date": post_date.strftime("%Y-%m-%d"),
+                            "is_video": True,
+                        })
+                if not page_has_recent:
+                    reels_done = True
+                if not rdata.get("paging_info", {}).get("more_available"):
+                    break
+                reels_cursor = rdata.get("paging_info", {}).get("max_id")
                 time.sleep(1)
 
             # 조회수 내림차순 정렬 후 상위 N개
@@ -233,7 +290,6 @@ async def scrape_x_async() -> list[dict]:
         return []
 
     api = API()
-
     for acc in CONFIG["x_scraper_accounts"]:
         await api.pool.add_account(
             username=acc["username"],
@@ -253,18 +309,14 @@ async def scrape_x_async() -> list[dict]:
             if not user:
                 print(f"  ⚠️ {account} 유저 없음")
                 continue
-
-            from twscrape import gather
             tweets = await gather(api.user_tweets(user.id, limit=20))
             posts = []
-
             for tweet in tweets:
                 tweet_date = tweet.date.replace(tzinfo=timezone.utc)
                 if tweet_date < cutoff:
                     continue
                 if tweet.likeCount < CONFIG["min_x_likes"]:
                     continue
-
                 posts.append({
                     "id": f"x_{tweet.id}",
                     "platform": "x",
@@ -276,12 +328,9 @@ async def scrape_x_async() -> list[dict]:
                     "date": tweet_date.strftime("%Y-%m-%d"),
                     "is_video": False,
                 })
-
                 if len(posts) >= CONFIG["max_per_channel"]:
                     break
-
             results.extend(posts)
-
         except Exception as e:
             print(f"  ⚠️ {account} 실패: {e}")
 
@@ -296,7 +345,6 @@ def scrape_x() -> list[dict]:
 
 def build_email_html(posts: list[dict]) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
-
     ig_posts = [p for p in posts if p["platform"] == "instagram"]
     x_posts  = [p for p in posts if p["platform"] == "x"]
 
@@ -308,7 +356,6 @@ def build_email_html(posts: list[dict]) -> str:
         caption = p["caption"].replace("\n", " ").strip()
         if len(caption) > 150:
             caption = caption[:150] + "..."
-
         return f"""
         <div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:12px;background:#fff;">
           <div style="font-size:13px;color:#6b7280;margin-bottom:6px;">
@@ -341,18 +388,14 @@ def build_email_html(posts: list[dict]) -> str:
     <head><meta charset="utf-8"></head>
     <body style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;
                  padding:24px;background:#f9fafb;color:#111827;">
-
       <div style="background:#6366f1;border-radius:16px;padding:24px;margin-bottom:24px;text-align:center;">
         <h1 style="color:#fff;font-size:22px;margin:0;">🤖 AI 콘텐츠 데일리 다이제스트</h1>
         <p style="color:#c7d2fe;margin:8px 0 0;font-size:14px;">{today} · 총 {len(posts)}개 콘텐츠</p>
       </div>
-
       {section("📸 Instagram", ig_posts)}
       {section("🐦 X (Twitter)", x_posts)}
-
       {"<p style='text-align:center;color:#9ca3af;font-size:12px;margin-top:32px;'>최근 3일 이내 · 채널당 조회수 상위 3개</p>" if posts else
        "<p style='text-align:center;color:#9ca3af;'>오늘은 새로운 콘텐츠가 없어요 🙂</p>"}
-
     </body>
     </html>
     """
@@ -364,18 +407,15 @@ def build_email_html(posts: list[dict]) -> str:
 def send_email(html: str, post_count: int):
     today = datetime.now().strftime("%m/%d")
     subject = f"[AI 다이제스트] {today} · {post_count}개 콘텐츠"
-
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = CONFIG["sender_email"]
     msg["To"] = CONFIG["recipient_email"]
     msg.attach(MIMEText(html, "html", "utf-8"))
-
     with smtplib.SMTP(CONFIG["smtp_host"], CONFIG["smtp_port"]) as server:
         server.starttls()
         server.login(CONFIG["sender_email"], CONFIG["sender_password"])
         server.sendmail(CONFIG["sender_email"], CONFIG["recipient_email"], msg.as_string())
-
     print(f"✅ 이메일 발송 완료: {subject}")
 
 # ──────────────────────────────────────────
@@ -383,24 +423,22 @@ def send_email(html: str, post_count: int):
 # ──────────────────────────────────────────
 
 async def setup_x():
-    """최초 1회 X 계정 등록 (--setup-x 플래그)"""
     from twscrape import API
     api = API()
-    print("X 계정 정보를 입력하세요 (twscrape 로그인용, 본인 계정)")
+    print("X 계정 정보를 입력하세요")
     username = input("X 아이디: ").strip()
     password = input("비밀번호: ").strip()
     email    = input("가입 이메일: ").strip()
-
     await api.pool.add_account(username, password, email, password)
     await api.pool.login_all()
-    print("✅ X 계정 등록 완료! 이제 ai_digest.py 를 실행하세요.")
+    print("✅ X 계정 등록 완료!")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--setup-x", action="store_true", help="X 계정 최초 등록")
-    parser.add_argument("--ig-only",  action="store_true", help="인스타만 수집")
-    parser.add_argument("--x-only",   action="store_true", help="X만 수집")
-    parser.add_argument("--dry-run",  action="store_true", help="이메일 발송 없이 미리보기")
+    parser.add_argument("--setup-x", action="store_true")
+    parser.add_argument("--ig-only",  action="store_true")
+    parser.add_argument("--x-only",   action="store_true")
+    parser.add_argument("--dry-run",  action="store_true")
     args = parser.parse_args()
 
     if args.setup_x:
@@ -413,7 +451,6 @@ def main():
 
     sent_data = load_sent_ids()
     sent_data = cleanup_old_ids(sent_data)
-
     all_posts = []
 
     if not args.x_only:
@@ -430,7 +467,6 @@ def main():
     print(f"✨ 신규 콘텐츠: {len(new_posts)}개 (전체 {len(all_posts)}개 중)")
 
     new_posts.sort(key=lambda p: p["views"] + p["likes"] * 10, reverse=True)
-
     html = build_email_html(new_posts)
 
     if args.dry_run:
@@ -444,7 +480,6 @@ def main():
     for p in new_posts:
         mark_sent(p["id"], sent_data)
     save_sent_ids(sent_data)
-
     print(f"\n✅ 완료! sent_ids.json 업데이트됨 ({len(sent_data['sent'])}개 누적)\n")
 
 if __name__ == "__main__":
