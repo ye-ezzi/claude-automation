@@ -16,6 +16,7 @@ import re
 import time
 import smtplib
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -111,47 +112,101 @@ def fetch_sheet_data():
 # STEP 2 — 오늘의 트렌드 수집
 # ══════════════════════════════════════════
 
+# RSS 피드 소스 (카테고리별 최신 뉴스)
+_AI_RSS_SOURCES = {
+    "AI 툴 & 생산성": [
+        "https://techcrunch.com/category/artificial-intelligence/feed/",
+        "https://venturebeat.com/category/ai/feed/",
+    ],
+    "디자인 & 크리에이티브": [
+        "https://www.theverge.com/rss/index.xml",
+        "https://www.creativebloq.com/rss",
+    ],
+    "크리에이터 이코노미": [
+        "https://www.socialmediatoday.com/rss.xml",
+        "https://later.com/blog/feed/",
+    ],
+}
+
+# DuckDuckGo 보조 쿼리 (RSS 실패 시, 최근 1주일 필터)
+_AI_DDGS_QUERIES = {
+    "AI 툴 & 생산성":     "new AI tools launch productivity app this week",
+    "디자인 & 크리에이티브": "AI design tools Figma Canva Midjourney update this week",
+    "크리에이터 이코노미":   "Instagram Reels creator monetization trends this week",
+}
+
+def _fetch_rss(url, max_items=4):
+    """RSS 피드에서 최신 기사 제목+요약 가져오기"""
+    try:
+        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        items = []
+        for item in root.findall('.//item')[:max_items]:
+            title   = (item.findtext('title') or '').strip()
+            desc    = (item.findtext('description') or item.findtext('summary') or '').strip()
+            desc    = re.sub(r'<[^>]+>', '', desc)[:200]
+            link    = (item.findtext('link') or '').strip()
+            if title:
+                items.append({"title": title, "snippet": desc, "url": link})
+        return items
+    except Exception:
+        return []
+
 def search_trends():
     print("\n🔍 [STEP 2] 오늘의 트렌드 수집 중...")
 
-    categories = {
-        "AI 툴 & 생산성":     "AI tools productivity new launch update site:techcrunch.com OR site:theverge.com OR site:venturebeat.com",
-        "디자인 & 크리에이티브": "Canva AI Midjourney Figma Adobe Firefly design tools trending update",
-        "크리에이터 이코노미":   "Instagram Reels creator monetization freelance market trends",
+    trends = {cat: [] for cat in _AI_RSS_SOURCES}
+
+    # 1순위: RSS 피드
+    for cat, feeds in _AI_RSS_SOURCES.items():
+        for feed_url in feeds:
+            items = _fetch_rss(feed_url)
+            trends[cat].extend(items)
+            if len(trends[cat]) >= 3:
+                break
+        if trends[cat]:
+            print(f"  → {cat}: RSS {len(trends[cat])}개 수집")
+
+    # 2순위: RSS 부족한 카테고리는 DuckDuckGo (최근 1주일)
+    missing = [cat for cat, items in trends.items() if len(items) < 2]
+    if missing:
+        try:
+            from ddgs import DDGS
+            ddgs_client = DDGS()
+            for cat in missing:
+                query = _AI_DDGS_QUERIES[cat]
+                results = ddgs_client.text(query, max_results=3, timelimit='w')
+                for r in results:
+                    trends[cat].append({
+                        "title":   r.get("title", ""),
+                        "snippet": r.get("body", "")[:200],
+                        "url":     r.get("href", ""),
+                    })
+                print(f"  → {cat}: DuckDuckGo {len(trends[cat])}개 수집")
+                time.sleep(1.2)
+        except Exception as e:
+            print(f"  ⚠️  웹 서치 실패 ({e}) → 기본 트렌드 사용")
+
+    # 3순위: 여전히 비어있는 카테고리는 폴백 데이터
+    fallback = {
+        "AI 툴 & 생산성": [
+            {"title": "Claude AI 최신 업데이트", "snippet": "Anthropic의 Claude가 새로운 기능을 출시했습니다.", "url": ""},
+            {"title": "GPT-4o 이미지 생성 화제", "snippet": "ChatGPT의 이미지 생성 기능이 디자이너들의 워크플로우를 바꾸고 있습니다.", "url": ""},
+        ],
+        "디자인 & 크리에이티브": [
+            {"title": "Canva AI Magic Studio 업데이트", "snippet": "Canva의 AI 기능이 디자이너들의 작업 속도를 혁신적으로 개선합니다.", "url": ""},
+            {"title": "Midjourney 신기능 출시", "snippet": "Midjourney의 새 버전이 더욱 정교한 이미지를 생성합니다.", "url": ""},
+        ],
+        "크리에이터 이코노미": [
+            {"title": "Instagram Reels 수익화 확대", "snippet": "인스타그램이 릴스 크리에이터를 위한 수익화 옵션을 확대합니다.", "url": ""},
+            {"title": "프리랜서 AI 활용 트렌드", "snippet": "프리랜서들이 AI 도구로 업무 효율을 높이고 있습니다.", "url": ""},
+        ],
     }
-    trends = {cat: [] for cat in categories}
-
-    try:
-        from ddgs import DDGS
-        ddgs = DDGS()
-
-        for cat, query in categories.items():
-            results = ddgs.text(query, max_results=3)
-            for r in results:
-                trends[cat].append({
-                    "title":   r.get("title", ""),
-                    "snippet": r.get("body", "")[:200],
-                    "url":     r.get("href", ""),
-                })
-            print(f"  → {cat}: {len(trends[cat])}개 수집")
-            time.sleep(1.2)
-
-    except Exception as e:
-        print(f"  ⚠️  웹 서치 실패 ({e}) → 기본 트렌드 사용")
-        trends = {
-            "AI 툴 & 생산성": [
-                {"title": "Claude AI 최신 업데이트", "snippet": "Anthropic의 Claude가 새로운 기능을 출시했습니다.", "url": ""},
-                {"title": "GPT-4o 이미지 생성 화제", "snippet": "ChatGPT의 이미지 생성 기능이 디자이너들의 워크플로우를 바꾸고 있습니다.", "url": ""},
-            ],
-            "디자인 & 크리에이티브": [
-                {"title": "Canva AI Magic Studio 업데이트", "snippet": "Canva의 AI 기능이 디자이너들의 작업 속도를 혁신적으로 개선합니다.", "url": ""},
-                {"title": "Midjourney 신기능 출시", "snippet": "Midjourney의 새 버전이 더욱 정교한 이미지를 생성합니다.", "url": ""},
-            ],
-            "크리에이터 이코노미": [
-                {"title": "Instagram Reels 수익화 확대", "snippet": "인스타그램이 릴스 크리에이터를 위한 수익화 옵션을 확대합니다.", "url": ""},
-                {"title": "프리랜서 AI 활용 트렌드", "snippet": "프리랜서들이 AI 도구로 업무 효율을 높이고 있습니다.", "url": ""},
-            ],
-        }
+    for cat in trends:
+        if not trends[cat]:
+            trends[cat] = fallback[cat]
+            print(f"  → {cat}: 폴백 데이터 사용")
 
     return trends
 

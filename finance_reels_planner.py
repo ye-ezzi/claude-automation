@@ -16,6 +16,7 @@ import re
 import time
 import smtplib
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -115,47 +116,101 @@ def fetch_sheet_data():
 # STEP 2 — 오늘의 트렌드 수집
 # ══════════════════════════════════════════
 
+# RSS 피드 소스 (카테고리별 최신 뉴스)
+_FIN_RSS_SOURCES = {
+    "주식시장": [
+        "https://www.hankyung.com/feed/economy",
+        "https://www.yna.co.kr/rss/economy.xml",
+    ],
+    "부동산 시장": [
+        "https://www.hankyung.com/feed/realestate",
+        "https://www.yna.co.kr/rss/realestate.xml",
+    ],
+    "재테크 입문·절약": [
+        "https://www.hankyung.com/feed/finance",
+        "https://www.mk.co.kr/rss/30100041/",
+    ],
+}
+
+# DuckDuckGo 보조 쿼리 (RSS 실패 시, 최근 1주일 필터)
+_FIN_DDGS_QUERIES = {
+    "주식시장":        "Korea KOSPI stock market ETF interest rate this week",
+    "부동산 시장":     "Korea apartment real estate jeonse market trend this week",
+    "재테크 입문·절약": "Korea personal finance saving investing couples beginner this week",
+}
+
+def _fetch_rss(url, max_items=4):
+    """RSS 피드에서 최신 기사 제목+요약 가져오기"""
+    try:
+        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        items = []
+        for item in root.findall('.//item')[:max_items]:
+            title   = (item.findtext('title') or '').strip()
+            desc    = (item.findtext('description') or item.findtext('summary') or '').strip()
+            desc    = re.sub(r'<[^>]+>', '', desc)[:200]
+            link    = (item.findtext('link') or '').strip()
+            if title:
+                items.append({"title": title, "snippet": desc, "url": link})
+        return items
+    except Exception:
+        return []
+
 def search_trends():
     print("\n🔍 [STEP 2] 오늘의 재테크 트렌드 수집 중...")
 
-    categories = {
-        "주식시장":        "KOSPI S&P500 주식 오늘 이슈 금리 경제 뉴스",
-        "부동산 시장":     "한국 아파트 부동산 전세 청약 집값 최신",
-        "재테크 입문·절약": "재테크 입문 절약 저축 투자앱 MZ 트렌드 한국",
+    trends = {cat: [] for cat in _FIN_RSS_SOURCES}
+
+    # 1순위: RSS 피드
+    for cat, feeds in _FIN_RSS_SOURCES.items():
+        for feed_url in feeds:
+            items = _fetch_rss(feed_url)
+            trends[cat].extend(items)
+            if len(trends[cat]) >= 3:
+                break
+        if trends[cat]:
+            print(f"  → {cat}: RSS {len(trends[cat])}개 수집")
+
+    # 2순위: RSS 부족한 카테고리는 DuckDuckGo (최근 1주일)
+    missing = [cat for cat, items in trends.items() if len(items) < 2]
+    if missing:
+        try:
+            from ddgs import DDGS
+            ddgs_client = DDGS()
+            for cat in missing:
+                query = _FIN_DDGS_QUERIES[cat]
+                results = ddgs_client.text(query, max_results=3, timelimit='w')
+                for r in results:
+                    trends[cat].append({
+                        "title":   r.get("title", ""),
+                        "snippet": r.get("body", "")[:200],
+                        "url":     r.get("href", ""),
+                    })
+                print(f"  → {cat}: DuckDuckGo {len(trends[cat])}개 수집")
+                time.sleep(1.2)
+        except Exception as e:
+            print(f"  ⚠️  웹 서치 실패 ({e}) → 기본 트렌드 사용")
+
+    # 3순위: 여전히 비어있는 카테고리는 폴백 데이터
+    fallback = {
+        "주식시장": [
+            {"title": "KOSPI 오늘 시장 동향", "snippet": "국내외 주요 지수 움직임과 투자자 관심 섹터가 화제입니다.", "url": ""},
+            {"title": "미국 금리 결정 영향", "snippet": "연준 금리 결정이 국내 주식·채권 시장에 미치는 영향 분석.", "url": ""},
+        ],
+        "부동산 시장": [
+            {"title": "서울 아파트 전세 시장 변화", "snippet": "전세가율과 매매가 변동 추이, 실수요자 주목 지역.", "url": ""},
+            {"title": "청약 제도 변경 핵심 정리", "snippet": "청약 가점제·추첨제 변경 사항과 전략.", "url": ""},
+        ],
+        "재테크 입문·절약": [
+            {"title": "ISA·IRP 절세 계좌 활용법", "snippet": "연말정산 환급을 위한 ISA, IRP 납입 전략이 인기입니다.", "url": ""},
+            {"title": "커플 통장 쪼개기 트렌드", "snippet": "결혼 준비 커플들의 공동 저축 계좌 운영 방법이 화제.", "url": ""},
+        ],
     }
-    trends = {cat: [] for cat in categories}
-
-    try:
-        from ddgs import DDGS
-        ddgs = DDGS()
-
-        for cat, query in categories.items():
-            results = ddgs.text(query, max_results=3)
-            for r in results:
-                trends[cat].append({
-                    "title":   r.get("title", ""),
-                    "snippet": r.get("body", "")[:200],
-                    "url":     r.get("href", ""),
-                })
-            print(f"  → {cat}: {len(trends[cat])}개 수집")
-            time.sleep(1.2)
-
-    except Exception as e:
-        print(f"  ⚠️  웹 서치 실패 ({e}) → 기본 트렌드 사용")
-        trends = {
-            "주식시장": [
-                {"title": "KOSPI 오늘 시장 동향", "snippet": "국내외 주요 지수 움직임과 투자자 관심 섹터가 화제입니다.", "url": ""},
-                {"title": "미국 금리 결정 영향", "snippet": "연준 금리 결정이 국내 주식·채권 시장에 미치는 영향 분석.", "url": ""},
-            ],
-            "부동산 시장": [
-                {"title": "서울 아파트 전세 시장 변화", "snippet": "전세가율과 매매가 변동 추이, 실수요자 주목 지역.", "url": ""},
-                {"title": "청약 제도 변경 핵심 정리", "snippet": "2024년 청약 가점제·추첨제 변경 사항과 전략.", "url": ""},
-            ],
-            "재테크 입문·절약": [
-                {"title": "ISA·IRP 절세 계좌 활용법", "snippet": "연말정산 환급을 위한 ISA, IRP 납입 전략이 인기입니다.", "url": ""},
-                {"title": "커플 통장 쪼개기 트렌드", "snippet": "결혼 준비 커플들의 공동 저축 계좌 운영 방법이 화제.", "url": ""},
-            ],
-        }
+    for cat in trends:
+        if not trends[cat]:
+            trends[cat] = fallback[cat]
+            print(f"  → {cat}: 폴백 데이터 사용")
 
     return trends
 
