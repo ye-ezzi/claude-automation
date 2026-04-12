@@ -65,29 +65,30 @@ def get_worksheet(tab_name: str) -> tuple:
 def read_pending_rows(tab_name: str, channel_cfg: dict) -> list:
     """본문 상태 = '대기중'인 행 반환 [(row_index, row_dict), ...]"""
     ws = get_worksheet(tab_name)
-    header = get_header(channel_cfg)
-    col = get_col(header)
 
     all_values = ws.get_all_values()
     if not all_values:
         return []
 
+    # 시트의 실제 헤더 사용 (코드 헤더가 아닌)
     sheet_header = all_values[0]
+    col = {h: i for i, h in enumerate(sheet_header)}
 
-    # 헤더 없으면 생성
-    if sheet_header != header:
-        print(f"  ⚠️  헤더 불일치. 시트 헤더: {sheet_header[:3]}...")
+    print(f"  시트 컬럼 수: {len(sheet_header)}개")
+
+    # 본문 상태 컬럼 찾기
+    status_col = col.get("본문 상태")
+    if status_col is None:
+        print(f"  ⚠️  '본문 상태' 컬럼이 시트에 없습니다. 컬럼 목록: {sheet_header}")
+        return []
 
     pending = []
-    status_col = col.get("본문 상태")
-
-    for i, row in enumerate(all_values[1:], start=2):  # 2행부터 (1-indexed)
-        # 행 길이 맞추기
-        row_padded = row + [""] * (len(header) - len(row))
-        status = row_padded[status_col] if status_col is not None else ""
+    for i, row in enumerate(all_values[1:], start=2):
+        row_padded = row + [""] * (len(sheet_header) - len(row))
+        status = row_padded[status_col]
 
         if status == "대기중":
-            row_dict = {h: row_padded[j] for j, h in enumerate(header)}
+            row_dict = {h: row_padded[j] for j, h in enumerate(sheet_header)}
             pending.append((i, row_dict))
 
     return pending
@@ -96,8 +97,10 @@ def read_pending_rows(tab_name: str, channel_cfg: dict) -> list:
 def write_generated(tab_name: str, row_index: int, updates: dict, channel_cfg: dict):
     """생성된 내용을 시트의 특정 행에 업데이트"""
     ws = get_worksheet(tab_name)
-    header = get_header(channel_cfg)
-    col = get_col(header)
+
+    # 시트의 실제 헤더 사용
+    sheet_header = ws.row_values(1)
+    col = {h: i for i, h in enumerate(sheet_header)}
 
     cell_updates = []
     for key, value in updates.items():
