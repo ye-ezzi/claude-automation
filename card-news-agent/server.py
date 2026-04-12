@@ -140,12 +140,17 @@ def get_row(
     if row_data is None:
         raise HTTPException(status_code=404, detail=f"'{folder}' 항목을 찾을 수 없습니다.")
 
-    # 카드별 필드 순서 (마스터_본문_N 프레임에 위→아래로 채울 순서)
+    # 카드별 필드 순서 (Figma 프레임 위→아래 채우기 순서)
     body_fields = [f["name"] for f in channel_cfg.get("body_fields", [])]
+    card01_fields = [f["name"] for f in channel_cfg.get("card01_fields", [])]
     n_body = channel_cfg.get("body_cards", 3)
-    field_order = {}
+
+    field_order = {
+        "Card01": card01_fields,                          # 마스터_썸네일_*
+        "CTA": ["Card05 CTA 유도문구"],                    # 마스터_CTA_*
+    }
     for i in range(n_body):
-        card_key = f"Card{i + 2:02d}"  # Card02, Card03, Card04
+        card_key = f"Card{i + 2:02d}"                    # Card02, Card03, Card04
         field_order[card_key] = body_fields
 
     return {"data": row_data, "fieldOrder": field_order}
