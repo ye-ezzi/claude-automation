@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>카드뉴스 자동생성</title>
+<title>카드뉴스 Figma 적용</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -13,30 +13,21 @@
     color: #1e1e1e;
     padding: 16px;
   }
-  h1 {
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 14px;
-    color: #0d0d0d;
-  }
-  .field { margin-bottom: 10px; }
-  label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 4px;
-    color: #444;
-  }
-  select, input[type="text"] {
+  h1 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; color: #444; }
+  select {
     width: 100%;
-    padding: 6px 8px;
+    padding: 7px 8px;
     border: 1px solid #d0d0d0;
     border-radius: 4px;
     font-size: 12px;
     background: #fafafa;
     outline: none;
   }
-  select:focus, input:focus { border-color: #18a0fb; background: #fff; }
-  .btn-generate {
+  select:focus { border-color: #18a0fb; background: #fff; }
+  select:disabled { background: #f0f0f0; color: #aaa; }
+  .btn {
     width: 100%;
     padding: 10px;
     margin-top: 14px;
@@ -48,158 +39,139 @@
     font-weight: 700;
     cursor: pointer;
   }
-  .btn-generate:hover { background: #0d8de3; }
-  .btn-generate:disabled { background: #ccc; cursor: not-allowed; }
+  .btn:hover { background: #0d8de3; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
   #status {
     margin-top: 10px;
     font-size: 11px;
     color: #666;
     min-height: 16px;
     text-align: center;
+    line-height: 1.5;
   }
   #status.error { color: #e53e3e; }
   #status.success { color: #38a169; }
-  .divider {
-    border: none;
-    border-top: 1px solid #eee;
-    margin: 12px 0;
-  }
 </style>
 </head>
 <body>
 
-<h1>카드뉴스 자동생성</h1>
+<h1>카드뉴스 Figma 적용</h1>
 
 <div class="field">
   <label>채널</label>
-  <select id="channel"></select>
+  <select id="channel" onchange="loadFolders()">
+    <option value="">채널 선택...</option>
+  </select>
 </div>
 
 <div class="field">
-  <label>기획법</label>
-  <select id="framework"></select>
+  <label>주제 (폴더명)</label>
+  <select id="folder" disabled>
+    <option value="">채널을 먼저 선택하세요</option>
+  </select>
 </div>
 
-<hr class="divider" />
-
-<div class="field">
-  <label>폴더명 (주제)</label>
-  <input type="text" id="folder" placeholder="예: ISA계좌" />
-</div>
-
-<div class="field">
-  <label>페르소나</label>
-  <input type="text" id="persona" placeholder="예: 30대 직장인" />
-</div>
-
-<div class="field">
-  <label>욕구</label>
-  <input type="text" id="desire" placeholder="예: 절세하고 싶다" />
-</div>
-
-<div class="field">
-  <label>인지단계</label>
-  <select id="awareness"></select>
-</div>
-
-<div class="field">
-  <label>펀넬</label>
-  <select id="funnel"></select>
-</div>
-
-<div class="field">
-  <label>앵글</label>
-  <select id="angle"></select>
-</div>
-
-<button class="btn-generate" id="btn" onclick="generate()">생성하기</button>
+<button class="btn" id="btn" onclick="applyToFigma()" disabled>Figma에 적용</button>
 <div id="status">서버 연결 중...</div>
 
 <script>
 const SERVER = 'http://localhost:8000';
 
-async function loadConfig() {
+async function init() {
   try {
     const res = await fetch(`${SERVER}/config`);
-    if (!res.ok) throw new Error('서버 응답 오류');
+    if (!res.ok) throw new Error();
     const data = await res.json();
 
-    fill('channel', data.channels);
-    fill('framework', data.frameworks);
+    const sel = document.getElementById('channel');
+    sel.innerHTML = '<option value="">채널 선택...</option>';
+    (data.channels || []).forEach(ch => {
+      const opt = document.createElement('option');
+      opt.value = ch;
+      opt.textContent = ch;
+      sel.appendChild(opt);
+    });
 
-    const opts = data.options || {};
-    fill('awareness', opts['인지단계'] || []);
-    fill('funnel', opts['펀넬'] || []);
-    fill('angle', opts['앵글'] || []);
-
-    document.getElementById('status').textContent = '✅ 서버 연결됨';
-    document.getElementById('status').className = 'success';
-    document.getElementById('btn').disabled = false;
-  } catch (e) {
-    document.getElementById('status').textContent = '❌ 서버 연결 실패 — python3 server.py 실행 확인';
-    document.getElementById('status').className = 'error';
-    document.getElementById('btn').disabled = true;
+    setStatus('✅ 서버 연결됨', 'success');
+  } catch {
+    setStatus('❌ 서버 연결 실패\npython3 server.py 실행 확인', 'error');
   }
 }
 
-function fill(id, items) {
-  const el = document.getElementById(id);
-  el.innerHTML = '';
-  (items || []).forEach(v => {
-    const opt = document.createElement('option');
-    opt.value = v;
-    opt.textContent = v;
-    el.appendChild(opt);
-  });
-}
-
-async function generate() {
+async function loadFolders() {
+  const channel = document.getElementById('channel').value;
+  const folderSel = document.getElementById('folder');
   const btn = document.getElementById('btn');
-  const status = document.getElementById('status');
 
+  folderSel.disabled = true;
   btn.disabled = true;
-  status.className = '';
-  status.textContent = '⏳ Claude가 생성 중... (10~20초)';
+  folderSel.innerHTML = '<option value="">불러오는 중...</option>';
 
-  const body = {
-    channel:  document.getElementById('channel').value,
-    폴더명:   document.getElementById('folder').value.trim(),
-    페르소나: document.getElementById('persona').value.trim(),
-    욕구:     document.getElementById('desire').value.trim(),
-    인지단계: document.getElementById('awareness').value,
-    펀넬:     document.getElementById('funnel').value,
-    앵글:     document.getElementById('angle').value,
-    기획법:   document.getElementById('framework').value,
-  };
+  if (!channel) {
+    folderSel.innerHTML = '<option value="">채널을 먼저 선택하세요</option>';
+    return;
+  }
 
   try {
-    const res = await fetch(`${SERVER}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    const res = await fetch(`${SERVER}/rows?channel=${encodeURIComponent(channel)}`);
+    if (!res.ok) throw new Error('시트 읽기 실패');
+    const rows = await res.json();
+
+    folderSel.innerHTML = '<option value="">주제 선택...</option>';
+    rows.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r['폴더명'];
+      opt.textContent = r['폴더명'];
+      folderSel.appendChild(opt);
     });
 
+    folderSel.disabled = false;
+    folderSel.onchange = () => {
+      btn.disabled = !folderSel.value;
+    };
+    setStatus(`${rows.length}개 항목 로드됨`, 'success');
+  } catch (e) {
+    folderSel.innerHTML = '<option value="">불러오기 실패</option>';
+    setStatus(`❌ ${e.message}`, 'error');
+  }
+}
+
+async function applyToFigma() {
+  const channel = document.getElementById('channel').value;
+  const folder = document.getElementById('folder').value;
+  const btn = document.getElementById('btn');
+
+  if (!channel || !folder) return;
+
+  btn.disabled = true;
+  setStatus('⏳ 시트에서 데이터 가져오는 중...', '');
+
+  try {
+    const res = await fetch(
+      `${SERVER}/row?channel=${encodeURIComponent(channel)}&folder=${encodeURIComponent(folder)}`
+    );
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || '생성 실패');
+      throw new Error(err.detail || '데이터 불러오기 실패');
     }
+    const data = await res.json();
 
-    const result = await res.json();
-    // code.js로 결과 전달
-    parent.postMessage({ pluginMessage: { type: 'fill-frames', data: result } }, '*');
-
-    status.textContent = '✅ 생성 완료! Figma 프레임에 적용됐습니다.';
-    status.className = 'success';
+    parent.postMessage({ pluginMessage: { type: 'fill-frames', data } }, '*');
+    setStatus('✅ Figma 프레임에 적용 완료!', 'success');
   } catch (e) {
-    status.textContent = `❌ ${e.message}`;
-    status.className = 'error';
+    setStatus(`❌ ${e.message}`, 'error');
   } finally {
     btn.disabled = false;
   }
 }
 
-// 초기화
-loadConfig();
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = cls;
+}
+
+init();
 </script>
 </body>
 </html>
