@@ -62,6 +62,13 @@ figma.ui.onmessage = async (msg) => {
       totalFilled += await fillFrame(clone, cardKey, rowData, fieldOrder);
     }
 
+    // 시트 상태 → "완료" 업데이트
+    figma.ui.postMessage({
+      type: 'update-status',
+      channel: channelName,
+      folder: folder
+    });
+
     offsetX += masterSetWidth;
   }
 

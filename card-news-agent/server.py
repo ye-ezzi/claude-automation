@@ -23,6 +23,7 @@ import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env", override=True)
@@ -209,6 +210,47 @@ def get_approved_rows(channel: str = Query(..., description="채널명")):
     return {"rows": approved, "fieldOrder": field_order}
 
 
+class StatusUpdate(BaseModel):
+    channel: str
+    folder: str
+    status: str = "완료"
+
+
+@app.post("/update-status")
+def update_status(req: StatusUpdate):
+    """Figma 생성 완료 후 시트 본문 상태 업데이트"""
+    cfg = load_config()
+    channels = cfg.get("channels", {})
+    req.channel = resolve_channel(channels, req.channel)
+    if not req.channel:
+        raise HTTPException(status_code=400, detail="채널을 찾을 수 없습니다.")
+
+    tab = channels[req.channel]["sheet_tab"]
+    try:
+        ws = get_worksheet(tab)
+        all_values = ws.get_all_values()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"시트 읽기 실패: {e}")
+
+    header = all_values[0]
+    folder_idx = next((i for i, h in enumerate(header) if h == "폴더명"), None)
+    status_idx = next((i for i, h in enumerate(header) if h == "본문 상태"), None)
+
+    if folder_idx is None or status_idx is None:
+        raise HTTPException(status_code=500, detail="컬럼을 찾을 수 없습니다.")
+
+    for row_num, row in enumerate(all_values[1:], start=2):
+        padded = row + [""] * (len(header) - len(row))
+        if padded[folder_idx].strip() == req.folder.strip():
+            import gspread
+            col_letter = gspread.utils.rowcol_to_a1(row_num, status_idx + 1)
+            ws.update(col_letter, [[req.status]])
+            return {"ok": True, "row": row_num, "status": req.status}
+
+    raise HTTPException(status_code=404, detail=f"'{req.folder}' 항목을 찾을 수 없습니다.")
+
+
+if __name__ == "__main__":
     print("🚀 카드뉴스 Figma 연동 서버 시작")
     print("   http://localhost:8000")
     print("   http://localhost:8000/docs  ← API 문서")

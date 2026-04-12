@@ -63,7 +63,23 @@ let cachedData = null;
 
 window.onmessage = async (event) => {
   const msg = event.data.pluginMessage;
-  if (!msg || msg.type !== 'page-name') return;
+  if (!msg) return;
+
+  // 시트 상태 업데이트 요청
+  if (msg.type === 'update-status') {
+    try {
+      await fetch(`${SERVER}/update-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: msg.channel, folder: msg.folder, status: '완료' })
+      });
+    } catch (e) {
+      console.warn('상태 업데이트 실패:', e);
+    }
+    return;
+  }
+
+  if (msg.type !== 'page-name') return;
 
   currentChannel = msg.name;
 
