@@ -1,82 +1,112 @@
 /**
  * 카드뉴스 자동생성 Figma 플러그인
  *
- * 프레임 네이밍 규칙 (채널 약자는 무엇이든 OK):
- *   마스터_썸네일_AI   → Card01 (표지) 필드 순서대로
- *   마스터_본문_1_AI   → Card02 body_fields 순서대로
- *   마스터_본문_2_AI   → Card03
- *   마스터_본문_3_AI   → Card04
- *   마스터_본문_4_AI   → Card05 (4번째 본문이 있는 경우)
- *   마스터_CTA_AI      → Card05 CTA 유도문구
- *
- * 각 프레임 안 TEXT 노드를 위→아래(y좌표) 순서로 정렬 후 순서대로 채웁니다.
+ * 동작 방식:
+ *   1. 현재 페이지 이름으로 채널 자동 감지
+ *   2. 구글 시트에서 "완료" 상태인 행 전체를 가져옴
+ *   3. 마스터 프레임(마스터_썸네일, 마스터_본문_N, 마스터_CTA)을 복제
+ *   4. 복제된 프레임에 시트 내용을 위→아래 순으로 채움
+ *   5. 완료된 행마다 새 프레임 세트가 생성됨
  */
 
-figma.showUI(__html__, { width: 260, height: 320 });
+figma.showUI(__html__, { width: 260, height: 240 });
 
-// 페이지 이름에서 채널명 추출
-// "마스터 카드뉴스_재테크" → "재테크"
-// "재테크" → "재테크" (언더스코어 없으면 그대로)
+// 현재 페이지 이름에서 채널명 추출
 const rawName = figma.currentPage.name;
 const channelName = rawName.includes('_') ? rawName.split('_').pop() : rawName;
 
-figma.ui.postMessage({
-  type: 'page-name',
-  name: channelName
-});
+figma.ui.postMessage({ type: 'page-name', name: channelName });
 
 figma.ui.onmessage = async (msg) => {
-  if (msg.type !== 'fill-frames') return;
+  if (msg.type !== 'generate') return;
 
-  const { data, fieldOrder } = msg;
-  let filled = 0;
-
-  for (const node of figma.currentPage.children) {
-    const name = node.name;
-
-    // ── 썸네일 프레임 (Card01)
-    if (name.includes('마스터_썸네일')) {
-      filled += await fillFrame(node, 'Card01', data, fieldOrder);
-      continue;
-    }
-
-    // ── 본문 프레임 (마스터_본문_N_*)
-    const bodyMatch = name.match(/마스터_본문_(\d+)/);
-    if (bodyMatch) {
-      const n = parseInt(bodyMatch[1]);
-      const cardKey = `Card${String(n + 1).padStart(2, '0')}`;
-      filled += await fillFrame(node, cardKey, data, fieldOrder);
-      continue;
-    }
-
-    // ── CTA 프레임
-    if (name.includes('마스터_CTA')) {
-      filled += await fillFrame(node, 'CTA', data, fieldOrder);
-    }
+  const { rows, fieldOrder } = msg;
+  if (!rows || rows.length === 0) {
+    figma.notify('⚠️ 완료된 항목이 없습니다.');
+    return;
   }
 
-  if (filled > 0) {
-    figma.notify(`✅ ${filled}개 텍스트 적용 완료`);
-  } else {
-    figma.notify('⚠️ 채울 프레임 없음 — 프레임 이름에 마스터_썸네일/마스터_본문_N/마스터_CTA 포함 필요');
+  // 마스터 프레임 수집 (복제 원본)
+  const masters = collectMasters();
+  if (masters.length === 0) {
+    figma.notify('⚠️ 마스터 프레임을 찾을 수 없습니다. (마스터_썸네일/마스터_본문_N/마스터_CTA)');
+    return;
   }
+
+  // 마스터 프레임들의 전체 너비 계산 (간격 포함)
+  const GAP = 40;
+  const masterSetWidth = getMasterSetWidth(masters) + GAP;
+
+  // 마스터 세트의 맨 오른쪽 x좌표 계산 (복제본을 그 다음에 배치)
+  let offsetX = getMasterSetRight(masters) + GAP;
+
+  let totalFilled = 0;
+
+  for (const rowData of rows) {
+    const folder = rowData['폴더명'] || '';
+
+    // 마스터 프레임 세트 복제
+    const clones = [];
+    for (const master of masters) {
+      const clone = master.clone();
+      clone.x = master.x + offsetX;
+      clone.name = clone.name.replace('마스터_', `${folder}_`);
+      figma.currentPage.appendChild(clone);
+      clones.push({ clone, master });
+    }
+
+    // 각 복제 프레임에 데이터 채우기
+    for (const { clone, master } of clones) {
+      const cardKey = getCardKey(master.name);
+      if (!cardKey) continue;
+      totalFilled += await fillFrame(clone, cardKey, rowData, fieldOrder);
+    }
+
+    offsetX += masterSetWidth;
+  }
+
+  figma.notify(`✅ ${rows.length}개 항목 생성 완료 (${totalFilled}개 텍스트 채움)`);
 };
 
-/**
- * 특정 카드의 필드값을 프레임 안 TEXT 노드에 위→아래 순으로 채운다.
- */
+/** 현재 페이지에서 마스터 프레임 수집 (이름순 정렬) */
+function collectMasters() {
+  return figma.currentPage.children
+    .filter(n => n.name.includes('마스터_'))
+    .sort((a, b) => a.x - b.x);
+}
+
+/** 마스터 프레임 세트의 전체 가로 너비 */
+function getMasterSetWidth(masters) {
+  if (masters.length === 0) return 0;
+  const minX = Math.min(...masters.map(m => m.x));
+  const maxX = Math.max(...masters.map(m => m.x + m.width));
+  return maxX - minX;
+}
+
+/** 마스터 세트의 맨 오른쪽 x */
+function getMasterSetRight(masters) {
+  if (masters.length === 0) return 0;
+  return Math.max(...masters.map(m => m.x + m.width));
+}
+
+/** 프레임 이름으로 카드 키 결정 */
+function getCardKey(name) {
+  if (name.includes('마스터_썸네일') || name.includes('_썸네일_')) return 'Card01';
+  if (name.includes('마스터_CTA') || name.includes('_CTA_')) return 'CTA';
+  const m = name.match(/본문_(\d+)/);
+  if (m) return `Card${String(parseInt(m[1]) + 1).padStart(2, '0')}`;
+  return null;
+}
+
+/** 프레임 안 TEXT 노드를 위→아래 순으로 채움 */
 async function fillFrame(frameNode, cardKey, data, fieldOrder) {
   const fields = fieldOrder[cardKey];
   if (!fields || fields.length === 0) return 0;
 
-  // 필드값 배열 생성
-  // CTA는 키가 "Card05 CTA 유도문구" 형태로 직접 저장됨
-  const values = fields.map(field => {
-    if (cardKey === 'CTA') return data[field] || '';          // field = "Card05 CTA 유도문구"
-    return data[`${cardKey} ${field}`] || '';                 // field = "섹션타이틀" 등
-  });
+  const values = fields.map(field =>
+    cardKey === 'CTA' ? (data[field] || '') : (data[`${cardKey} ${field}`] || '')
+  );
 
-  // TEXT 노드를 y좌표 오름차순(위→아래)으로 정렬
   const textNodes = getTextNodes(frameNode).sort(
     (a, b) => a.absoluteBoundingBox.y - b.absoluteBoundingBox.y
   );
@@ -89,7 +119,7 @@ async function fillFrame(frameNode, cardKey, data, fieldOrder) {
       textNodes[i].characters = String(values[i]);
       count++;
     } catch (e) {
-      console.error(`폰트 로드 실패 (${frameNode.name}):`, e);
+      console.error(`폰트 로드 실패:`, e);
     }
   }
   return count;
@@ -99,9 +129,7 @@ function getTextNodes(node) {
   const results = [];
   if (node.type === 'TEXT') results.push(node);
   if ('children' in node) {
-    for (const child of node.children) {
-      results.push(...getTextNodes(child));
-    }
+    for (const child of node.children) results.push(...getTextNodes(child));
   }
   return results;
 }

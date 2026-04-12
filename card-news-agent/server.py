@@ -156,7 +156,46 @@ def get_row(
     return {"data": row_data, "fieldOrder": field_order}
 
 
-if __name__ == "__main__":
+@app.get("/approved-rows")
+def get_approved_rows(channel: str = Query(..., description="채널명")):
+    """본문 상태 = '완료'인 행 전체 데이터 목록 반환 (Figma 플러그인용)"""
+    cfg = load_config()
+    channels = cfg.get("channels", {})
+    if channel not in channels:
+        raise HTTPException(status_code=400, detail=f"채널 '{channel}'이 없습니다.")
+
+    channel_cfg = channels[channel]
+    tab = channel_cfg["sheet_tab"]
+    try:
+        ws = get_worksheet(tab)
+        all_values = ws.get_all_values()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"시트 읽기 실패: {e}")
+
+    if not all_values:
+        return {"rows": [], "fieldOrder": {}}
+
+    header = all_values[0]
+    status_idx = next((i for i, h in enumerate(header) if h == "본문 상태"), None)
+
+    body_fields = [f["name"] for f in channel_cfg.get("body_fields", [])]
+    card01_fields = [f["name"] for f in channel_cfg.get("card01_fields", [])]
+    n_body = channel_cfg.get("body_cards", 3)
+
+    field_order = {"Card01": card01_fields, "CTA": ["Card05 CTA 유도문구"]}
+    for i in range(n_body):
+        field_order[f"Card{i + 2:02d}"] = body_fields
+
+    approved = []
+    for row in all_values[1:]:
+        padded = row + [""] * (len(header) - len(row))
+        status = padded[status_idx].strip() if status_idx is not None else ""
+        if status == "완료":
+            approved.append({header[i]: padded[i] for i in range(len(header))})
+
+    return {"rows": approved, "fieldOrder": field_order}
+
+
     print("🚀 카드뉴스 Figma 연동 서버 시작")
     print("   http://localhost:8000")
     print("   http://localhost:8000/docs  ← API 문서")
