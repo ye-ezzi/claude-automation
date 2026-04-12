@@ -14,9 +14,15 @@
 
 figma.showUI(__html__, { width: 260, height: 320 });
 
+// 페이지 이름에서 채널명 추출
+// "마스터 카드뉴스_재테크" → "재테크"
+// "재테크" → "재테크" (언더스코어 없으면 그대로)
+const rawName = figma.currentPage.name;
+const channelName = rawName.includes('_') ? rawName.split('_').pop() : rawName;
+
 figma.ui.postMessage({
   type: 'page-name',
-  name: figma.currentPage.name
+  name: channelName
 });
 
 figma.ui.onmessage = async (msg) => {
