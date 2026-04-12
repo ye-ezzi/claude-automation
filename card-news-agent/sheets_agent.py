@@ -87,7 +87,7 @@ def read_pending_rows(tab_name: str, channel_cfg: dict) -> list:
         row_padded = row + [""] * (len(sheet_header) - len(row))
         status = row_padded[status_col]
 
-        if status == "대기중":
+        if status == "본문대기":
             row_dict = {h: row_padded[j] for j, h in enumerate(sheet_header)}
             pending.append((i, row_dict))
 

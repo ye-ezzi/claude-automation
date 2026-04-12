@@ -131,6 +131,51 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
 }}"""
 
 
+def generate_card01(row: dict, channel_cfg: dict, client: anthropic.Anthropic) -> dict:
+    """Card01 헤드라인 + 컬러칩 자동 생성"""
+    card01_fields = channel_cfg.get("card01_fields", [])
+    field_descs = {f["name"]: f["desc"] for f in card01_fields}
+
+    fields_guide = "\n".join(
+        f"  - {name}: {desc}" for name, desc in field_descs.items()
+    )
+
+    prompt = f"""카드뉴스 Card01(표지 카드) 내용을 생성해주세요.
+
+## 입력 정보
+- 채널 타겟: {channel_cfg.get('target', '')}
+- 톤앤매너: {channel_cfg.get('tone', '')}
+- 폴더명(주제): {row.get('폴더명', '')}
+- 페르소나: {row.get('페르소나', '')}
+- 욕구: {row.get('욕구', '')}
+- 인지단계: {row.get('인지단계', '')}
+- 펀넬: {row.get('펀넬', '')}
+- 앵글: {row.get('앵글', '')}
+- 기획법: {row.get('기획법', '기본')}
+
+## 생성할 필드
+{fields_guide}
+
+## 출력 형식 (JSON만, 다른 텍스트 없이)
+{{{", ".join(f'"Card01 {name}": "..."' for name in field_descs.keys())}}}"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    try:
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw.strip())
+    except json.JSONDecodeError:
+        return {}
+
+
 def generate(row: dict, channel_cfg: dict) -> dict:
     """Claude API로 카드뉴스 본문 생성"""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -138,6 +183,18 @@ def generate(row: dict, channel_cfg: dict) -> dict:
         raise EnvironmentError("ANTHROPIC_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
 
     client = anthropic.Anthropic(api_key=api_key)
+
+    # Card01 헤드라인 비어있으면 먼저 생성
+    card01_fields = channel_cfg.get("card01_fields", [])
+    for f in card01_fields:
+        key = f"Card01 {f['name']}"
+        if not row.get(key, "").strip():
+            print(f"  📝 Card01 자동 생성 중...")
+            card01_data = generate_card01(row, channel_cfg, client)
+            row.update(card01_data)
+            print(f"  ✅ Card01 헤드라인: {row.get('Card01 헤드라인', '')[:30]}...")
+            break
+
     prompt = build_prompt(row, channel_cfg)
 
     print(f"  🤖 Claude 생성 중... (기획법: {row.get('기획법', '기본')})")
