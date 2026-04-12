@@ -320,8 +320,9 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 {avoid_block}
 {feedback_block}
 ## 실제 시트 패턴
-**썸네일 문구 패턴:**
+**썸네일 문구 패턴 (이 키워드 톤·구조·길이를 최대한 유사하게 따라 쓸 것):**
 {chr(10).join(f"- {t}" for t in thumbnails)}
+→ 위 썸네일들의 공통 키워드, 말투, 숫자/질문/반전 패턴을 분석해서 오늘 아이디어 썸네일에 그대로 녹여주세요.
 
 **첫 3초 훅 패턴:**
 {chr(10).join(f"- {h}" for h in hooks_3sec) if hooks_3sec else "- (시트 데이터 없음 → 폴백 참고)"}
@@ -432,7 +433,7 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 - 최소 3개: 콘텐츠 제작 / 인스타그램 성장
 - 나머지 3개: 오늘 트렌드 반응형
 - 체크리스트·비교표·단계별 가이드 형식 선호
-- 커버 카드는 반드시 숫자 또는 질문으로 시작
+- 커버 카드는 위 시트 썸네일 패턴의 키워드·말투를 참고해서 작성
 - 댓글 키워드 DM 전략 20개 중 최소 5개 적용
 
 ## 출력 형식 (정확히 이 형식, 20개 모두)

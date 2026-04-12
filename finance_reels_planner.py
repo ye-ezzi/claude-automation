@@ -323,8 +323,9 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 {avoid_block}
 {feedback_block}
 ## 실제 시트 패턴
-**썸네일 훅 패턴:**
+**썸네일 훅 패턴 (이 키워드 톤·구조·길이를 최대한 유사하게 따라 쓸 것):**
 {chr(10).join(f"- {t}" for t in thumbnails)}
+→ 위 썸네일들의 공통 키워드, 말투, 숫자/질문/반전 패턴을 분석해서 오늘 아이디어 썸네일에 그대로 녹여주세요.
 
 **캡션 패턴:**
 {chr(10).join(f"- {c}" for c in captions)}
@@ -432,7 +433,7 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 - 최소 4개: 부동산 (전세 vs 매매, 청약, 전세사기 예방 등)
 - 나머지 4개: 오늘 트렌드 반응형
 - 카드뉴스는 '저장하고 싶은 정보성' 콘텐츠 위주 — 체크리스트, 비교표, 단계별 가이드 형식 선호
-- 커버 카드는 반드시 숫자 또는 질문으로 시작
+- 커버 카드는 위 시트 썸네일 패턴의 키워드·말투를 참고해서 작성
 - 캡션에 댓글 키워드 DM 전략 최소 5개 적용
 
 ## 출력 형식 (정확히 이 형식, 20개 모두)
