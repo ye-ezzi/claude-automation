@@ -222,6 +222,13 @@ def generate(row: dict, channel_cfg: dict) -> dict:
 
     # 플랫 구조로 변환 (Card02 섹션타이틀, Card02 섹션텍스트, ...)
     result = {}
+
+    # Card01 (헤드라인, 컬러칩 등) — generate_card01()로 생성된 값 포함
+    for f in channel_cfg.get("card01_fields", []):
+        key = f"Card01 {f['name']}"
+        if row.get(key, "").strip():
+            result[key] = row[key]
+
     for card_key in ["Card02", "Card03", "Card04"]:
         if card_key in data:
             for field, value in data[card_key].items():
