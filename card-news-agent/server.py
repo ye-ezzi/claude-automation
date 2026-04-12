@@ -42,6 +42,16 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def resolve_channel(channels: dict, name: str) -> str | None:
+    """채널명 부분 매칭: 'AI' → 'AI트렌드' 등"""
+    if name in channels:
+        return name
+    for key in channels:
+        if name in key or key in name:
+            return key
+    return None
+
+
 def get_worksheet(tab_name: str):
     from sheets_agent import _get_client
     client = _get_client()
@@ -69,8 +79,9 @@ def get_rows(channel: str = Query(..., description="채널명 (예: 재테크)")
     """해당 채널 시트에서 폴더명 목록 반환"""
     cfg = load_config()
     channels = cfg.get("channels", {})
-    if channel not in channels:
-        raise HTTPException(status_code=400, detail=f"채널 '{channel}'이 없습니다.")
+    channel = resolve_channel(channels, channel)
+    if not channel:
+        raise HTTPException(status_code=400, detail=f"채널을 찾을 수 없습니다. 사용 가능: {list(channels.keys())}")
 
     tab = channels[channel]["sheet_tab"]
     try:
@@ -111,8 +122,9 @@ def get_row(
     """
     cfg = load_config()
     channels = cfg.get("channels", {})
-    if channel not in channels:
-        raise HTTPException(status_code=400, detail=f"채널 '{channel}'이 없습니다.")
+    channel = resolve_channel(channels, channel)
+    if not channel:
+        raise HTTPException(status_code=400, detail=f"채널을 찾을 수 없습니다. 사용 가능: {list(channels.keys())}")
 
     channel_cfg = channels[channel]
     tab = channel_cfg["sheet_tab"]
@@ -161,8 +173,9 @@ def get_approved_rows(channel: str = Query(..., description="채널명")):
     """본문 상태 = '완료'인 행 전체 데이터 목록 반환 (Figma 플러그인용)"""
     cfg = load_config()
     channels = cfg.get("channels", {})
-    if channel not in channels:
-        raise HTTPException(status_code=400, detail=f"채널 '{channel}'이 없습니다.")
+    channel = resolve_channel(channels, channel)
+    if not channel:
+        raise HTTPException(status_code=400, detail=f"채널을 찾을 수 없습니다. 사용 가능: {list(channels.keys())}")
 
     channel_cfg = channels[channel]
     tab = channel_cfg["sheet_tab"]
