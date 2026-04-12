@@ -83,11 +83,18 @@ def read_pending_rows(tab_name: str, channel_cfg: dict) -> list:
         return []
 
     pending = []
+    # Card02 첫 번째 필드 컬럼 찾기 (이미 내용 있으면 스킵)
+    card02_col = next((col[h] for h in sheet_header if h.startswith("Card02")), None)
+
     for i, row in enumerate(all_values[1:], start=2):
         row_padded = row + [""] * (len(sheet_header) - len(row))
         status = row_padded[status_col]
 
         if status == "본문 대기":
+            # Card02 이미 채워져 있으면 스킵
+            if card02_col is not None and row_padded[card02_col].strip():
+                print(f"  ⏭️  {i}행: Card02 이미 있음 — 스킵 ({row_padded[1]})")
+                continue
             row_dict = {h: row_padded[j] for j, h in enumerate(sheet_header)}
             pending.append((i, row_dict))
 
