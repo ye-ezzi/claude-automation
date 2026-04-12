@@ -79,10 +79,10 @@ channels:
     target: "결혼 전후 2030 직장인"
     tone: "신뢰감 있고 구체적, 숫자 중심"
     card01_fields:
-      - name: "헤드라인"
-        desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
       - name: "컬러칩"
         desc: "재테크 관련 해시태그 (예: #부수입 #절세전략)"
+      - name: "헤드라인"
+        desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
     body_cards: 3
     body_fields:
       - name: "섹션타이틀"
