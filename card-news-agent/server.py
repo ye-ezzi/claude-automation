@@ -42,7 +42,7 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-def resolve_channel(channels: dict, name: str) -> str | None:
+def resolve_channel(channels: dict, name: str):
     """채널명 부분 매칭: 'AI' → 'AI트렌드' 등"""
     if name in channels:
         return name
