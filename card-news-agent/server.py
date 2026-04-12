@@ -102,13 +102,20 @@ def get_row(
     channel: str = Query(..., description="채널명"),
     folder: str = Query(..., description="폴더명(주제)")
 ):
-    """해당 채널+폴더명의 행 데이터 전체 반환 → Figma 프레임에 채울 내용"""
+    """해당 채널+폴더명의 행 데이터 반환
+
+    응답:
+      data      - 시트 전체 컬럼 데이터 (key: 컬럼명, value: 셀값)
+      fieldOrder - 카드별 필드 순서 (config.yaml body_fields 기준)
+                   Figma 플러그인이 위→아래 순서로 텍스트레이어 채울 때 사용
+    """
     cfg = load_config()
     channels = cfg.get("channels", {})
     if channel not in channels:
         raise HTTPException(status_code=400, detail=f"채널 '{channel}'이 없습니다.")
 
-    tab = channels[channel]["sheet_tab"]
+    channel_cfg = channels[channel]
+    tab = channel_cfg["sheet_tab"]
     try:
         ws = get_worksheet(tab)
         all_values = ws.get_all_values()
@@ -123,12 +130,25 @@ def get_row(
     if folder_idx is None:
         raise HTTPException(status_code=500, detail="'폴더명' 컬럼을 찾을 수 없습니다.")
 
+    row_data = None
     for row in all_values[1:]:
         padded = row + [""] * (len(header) - len(row))
         if padded[folder_idx].strip() == folder.strip():
-            return {header[i]: padded[i] for i in range(len(header))}
+            row_data = {header[i]: padded[i] for i in range(len(header))}
+            break
 
-    raise HTTPException(status_code=404, detail=f"'{folder}' 항목을 찾을 수 없습니다.")
+    if row_data is None:
+        raise HTTPException(status_code=404, detail=f"'{folder}' 항목을 찾을 수 없습니다.")
+
+    # 카드별 필드 순서 (마스터_본문_N 프레임에 위→아래로 채울 순서)
+    body_fields = [f["name"] for f in channel_cfg.get("body_fields", [])]
+    n_body = channel_cfg.get("body_cards", 3)
+    field_order = {}
+    for i in range(n_body):
+        card_key = f"Card{i + 2:02d}"  # Card02, Card03, Card04
+        field_order[card_key] = body_fields
+
+    return {"data": row_data, "fieldOrder": field_order}
 
 
 if __name__ == "__main__":
