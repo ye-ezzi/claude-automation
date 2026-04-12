@@ -13,11 +13,12 @@ STEP 5. Gmail로 자동 발송 (실패 시 파일 저장)
 
 import os
 import re
+import json
 import time
 import smtplib
 import requests
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -49,7 +50,8 @@ SHEETS_URL = (
     "/exec?action=readSheet&sheet=Posts"
 )
 
-OUTPUT_DIR = os.path.expanduser("~/reels_outputs")
+OUTPUT_DIR   = os.path.expanduser("~/reels_outputs")
+HISTORY_FILE = os.path.join(OUTPUT_DIR, "ai_history.json")
 
 # ── 폴백 패턴 (시트 접근 실패 시) ──────────────────────
 FALLBACK_PATTERNS = {
@@ -212,10 +214,68 @@ def search_trends():
 
 
 # ══════════════════════════════════════════
+# 다양성 엔진 — 요일 테마 + 히스토리 회피
+# ══════════════════════════════════════════
+
+def get_daily_theme(weekday: int) -> dict:
+    """요일(0=월 ~ 6=일)에 따라 오늘의 콘텐츠 각도 반환"""
+    themes = {
+        0: {"name": "🛠️ 툴 입문의 날",      "instruction": "처음 AI 툴을 접하는 완전 초보자 기준으로 기초부터 설명하는 콘텐츠에 집중하세요. '이런 게 있었어?' 반응을 유도하세요."},
+        1: {"name": "⚡ 실전 활용의 날",     "instruction": "당장 오늘 써먹을 수 있는 구체적 활용법과 워크플로우에 집중하세요. 단계별 실습 중심으로."},
+        2: {"name": "📊 비교·분석의 날",     "instruction": "툴 vs 툴, 방법 A vs 방법 B, 전/후 비교에 집중하세요. 데이터와 수치로 차이를 보여주세요."},
+        3: {"name": "💡 창의 아이디어의 날", "instruction": "예상 밖의 색다른 AI 활용법, '이렇게도 쓸 수 있어?' 반응을 유도하는 창의적 아이디어에 집중하세요."},
+        4: {"name": "📈 성장·수익화의 날",   "instruction": "크리에이터 성장, AI로 수익 창출, 프리랜서 비즈니스 확장에 집중하세요. 실제 사례와 수치 강조."},
+        5: {"name": "🔥 이번 주 트렌드의 날","instruction": "이번 주 화제가 된 AI 신기능, 업데이트, 화제의 사용 사례에 집중하세요. 타이밍이 핵심."},
+        6: {"name": "💬 소통·참여의 날",     "instruction": "팔로워 참여를 최대화하는 질문형·공감형 콘텐츠에 집중하세요. 댓글, DM, 저장을 이끌어내는 포맷."},
+    }
+    return themes[weekday]
+
+
+def load_recent_titles(days: int = 21) -> list:
+    """최근 N일 치 아이디어 제목 로드 (중복 방지용)"""
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as f:
+            history = json.load(f)
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        recent = []
+        for date, titles in history.items():
+            if date >= cutoff:
+                recent.extend(titles)
+        return recent
+    except Exception:
+        return []
+
+
+def save_titles_to_history(reels_output: str, feed_output: str):
+    """생성된 아이디어 제목을 히스토리 파일에 저장"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    titles = re.findall(r'\*\*아이디어 제목:\*\*\s*(.+)', reels_output + feed_output)
+    if not titles:
+        return
+    history = {}
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            pass
+    history[today] = [t.strip() for t in titles]
+    # 30일 이전 데이터 자동 정리
+    cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    history = {k: v for k, v in history.items() if k >= cutoff}
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+    print(f"  📝 히스토리 저장: {len(titles)}개 제목 → {HISTORY_FILE}")
+
+
+# ══════════════════════════════════════════
 # STEP 3 — 릴스 아이디어 20개 생성
 # ══════════════════════════════════════════
 
-def build_reels_prompt(patterns: dict, trends: dict) -> str:
+def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
 
     thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:8]
@@ -229,9 +289,22 @@ def build_reels_prompt(patterns: dict, trends: dict) -> str:
         for item in items:
             trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
+    week_num = datetime.now().isocalendar()[1]
+    avoid_block = (
+        "\n".join(f"- {t}" for t in recent_titles[:50])
+        if recent_titles else "- (첫 실행 — 제한 없음)"
+    )
+
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
 
 {ACCOUNT_DNA}
+
+## 오늘의 테마: {theme['name']}
+{theme['instruction']}
+→ 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+
+## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
+{avoid_block}
 
 ## 실제 시트 패턴
 **썸네일 문구 패턴:**
@@ -277,9 +350,9 @@ def build_reels_prompt(patterns: dict, trends: dict) -> str:
 - 캡션 오프닝은 공감 또는 감탄 → 핵심 팁 → CTA 순서"""
 
 
-def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic) -> str:
+def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict, recent_titles: list) -> str:
     print("\n🤖 [STEP 3] 릴스 아이디어 20개 생성 중...")
-    prompt = build_reels_prompt(patterns, trends)
+    prompt = build_reels_prompt(patterns, trends, theme, recent_titles)
 
     text = ""
     with client.messages.stream(
@@ -300,8 +373,13 @@ def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic) ->
 # STEP 4 — 피드(카드뉴스) 아이디어 20개 생성
 # ══════════════════════════════════════════
 
-def build_feed_prompt(patterns: dict, trends: dict) -> str:
+def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
+    week_num = datetime.now().isocalendar()[1]
+    avoid_block = (
+        "\n".join(f"- {t}" for t in recent_titles[:50])
+        if recent_titles else "- (첫 실행 — 제한 없음)"
+    )
 
     trend_lines = []
     for cat, items in trends.items():
@@ -309,9 +387,16 @@ def build_feed_prompt(patterns: dict, trends: dict) -> str:
         for item in items:
             trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 20개를 생성해주세요.
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 20개를 생성해주세요.
 
 {ACCOUNT_DNA}
+
+## 오늘의 테마: {theme['name']}
+{theme['instruction']}
+→ 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+
+## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
+{avoid_block}
 
 ## 오늘의 트렌드
 {"".join(trend_lines)}
@@ -352,9 +437,9 @@ def build_feed_prompt(patterns: dict, trends: dict) -> str:
 - 저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호"""
 
 
-def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic) -> str:
+def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict, recent_titles: list) -> str:
     print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 20개 생성 중...")
-    prompt = build_feed_prompt(patterns, trends)
+    prompt = build_feed_prompt(patterns, trends, theme, recent_titles)
 
     text = ""
     with client.messages.stream(
@@ -476,8 +561,13 @@ def save_fallback(reels: str, feed: str, today_str: str):
 
 def main():
     today_str = datetime.now().strftime("%Y-%m-%d")
+    now       = datetime.now()
+    theme     = get_daily_theme(now.weekday())
+    week_num  = now.isocalendar()[1]
+
     print(f"\n{'='*55}")
     print(f"  🚀 AI 릴스+피드 플래너 시작 — {today_str}")
+    print(f"  📅 오늘 테마: {theme['name']} (#{week_num}주차)")
     print(f"{'='*55}\n")
 
     if not ANTHROPIC_API_KEY:
@@ -485,12 +575,20 @@ def main():
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+    # 히스토리 로드 (중복 방지)
+    recent_titles = load_recent_titles()
+    if recent_titles:
+        print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개 제목 로드")
+
     patterns, sheet_success = fetch_sheet_data()
     trends  = search_trends()
-    reels   = generate_reels(patterns, trends, client)
-    feed    = generate_feed(patterns, trends, client)
+    reels   = generate_reels(patterns, trends, client, theme, recent_titles)
+    feed    = generate_feed(patterns, trends, client, theme, recent_titles)
 
-    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str}"
+    # 히스토리 저장 (다음 실행에서 중복 방지)
+    save_titles_to_history(reels, feed)
+
+    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str} {theme['name']}"
     html_body = build_email_html(sheet_success, trends, reels, feed)
 
     try:
