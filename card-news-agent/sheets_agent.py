@@ -113,7 +113,7 @@ def write_generated(tab_name: str, row_index: int, updates: dict, channel_cfg: d
     for key, value in updates.items():
         if key in col:
             col_letter = gspread.utils.rowcol_to_a1(row_index, col[key] + 1)
-            cell_updates.append({"range": col_letter, "values": [[value]]})
+            cell_updates.append({"range": f"'{tab_name}'!{col_letter}", "values": [[value]]})
 
     if cell_updates:
         ws.spreadsheet.values_batch_update({
