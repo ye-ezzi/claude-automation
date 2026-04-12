@@ -151,7 +151,7 @@ def generate_card01(row: dict, channel_cfg: dict, client: anthropic.Anthropic) -
 - 인지단계: {row.get('인지단계', '')}
 - 펀넬: {row.get('펀넬', '')}
 - 앵글: {row.get('앵글', '')}
-- 기획법: {row.get('기획법', '기본')}
+- 기획법: {row.get('기획구조', row.get('기획법', '기본'))}
 
 ## 생성할 필드
 {fields_guide}
@@ -197,7 +197,7 @@ def generate(row: dict, channel_cfg: dict) -> dict:
 
     prompt = build_prompt(row, channel_cfg)
 
-    print(f"  🤖 Claude 생성 중... (기획법: {row.get('기획법', '기본')})")
+    print(f"  🤖 Claude 생성 중... (기획법: {row.get('기획구조', row.get('기획법', '기본'))})")
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
