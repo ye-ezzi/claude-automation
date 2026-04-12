@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>카드뉴스 자동생성</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+    font-size: 12px;
+    background: #fff;
+    color: #1e1e1e;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    color: #0d0d0d;
+  }
+  .field { margin-bottom: 10px; }
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #444;
+  }
+  select, input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    font-size: 12px;
+    background: #fafafa;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: #18a0fb; background: #fff; }
+  .btn-generate {
+    width: 100%;
+    padding: 10px;
+    margin-top: 14px;
+    background: #18a0fb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-generate:hover { background: #0d8de3; }
+  .btn-generate:disabled { background: #ccc; cursor: not-allowed; }
+  #status {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #666;
+    min-height: 16px;
+    text-align: center;
+  }
+  #status.error { color: #e53e3e; }
+  #status.success { color: #38a169; }
+  .divider {
+    border: none;
+    border-top: 1px solid #eee;
+    margin: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>카드뉴스 자동생성</h1>
+
+<div class="field">
+  <label>채널</label>
+  <select id="channel"></select>
+</div>
+
+<div class="field">
+  <label>기획법</label>
+  <select id="framework"></select>
+</div>
+
+<hr class="divider" />
+
+<div class="field">
+  <label>폴더명 (주제)</label>
+  <input type="text" id="folder" placeholder="예: ISA계좌" />
+</div>
+
+<div class="field">
+  <label>페르소나</label>
+  <input type="text" id="persona" placeholder="예: 30대 직장인" />
+</div>
+
+<div class="field">
+  <label>욕구</label>
+  <input type="text" id="desire" placeholder="예: 절세하고 싶다" />
+</div>
+
+<div class="field">
+  <label>인지단계</label>
+  <select id="awareness"></select>
+</div>
+
+<div class="field">
+  <label>펀넬</label>
+  <select id="funnel"></select>
+</div>
+
+<div class="field">
+  <label>앵글</label>
+  <select id="angle"></select>
+</div>
+
+<button class="btn-generate" id="btn" onclick="generate()">생성하기</button>
+<div id="status">서버 연결 중...</div>
+
+<script>
+const SERVER = 'http://localhost:8000';
+
+async function loadConfig() {
+  try {
+    const res = await fetch(`${SERVER}/config`);
+    if (!res.ok) throw new Error('서버 응답 오류');
+    const data = await res.json();
+
+    fill('channel', data.channels);
+    fill('framework', data.frameworks);
+
+    const opts = data.options || {};
+    fill('awareness', opts['인지단계'] || []);
+    fill('funnel', opts['펀넬'] || []);
+    fill('angle', opts['앵글'] || []);
+
+    document.getElementById('status').textContent = '✅ 서버 연결됨';
+    document.getElementById('status').className = 'success';
+    document.getElementById('btn').disabled = false;
+  } catch (e) {
+    document.getElementById('status').textContent = '❌ 서버 연결 실패 — python3 server.py 실행 확인';
+    document.getElementById('status').className = 'error';
+    document.getElementById('btn').disabled = true;
+  }
+}
+
+function fill(id, items) {
+  const el = document.getElementById(id);
+  el.innerHTML = '';
+  (items || []).forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    el.appendChild(opt);
+  });
+}
+
+async function generate() {
+  const btn = document.getElementById('btn');
+  const status = document.getElementById('status');
+
+  btn.disabled = true;
+  status.className = '';
+  status.textContent = '⏳ Claude가 생성 중... (10~20초)';
+
+  const body = {
+    channel:  document.getElementById('channel').value,
+    폴더명:   document.getElementById('folder').value.trim(),
+    페르소나: document.getElementById('persona').value.trim(),
+    욕구:     document.getElementById('desire').value.trim(),
+    인지단계: document.getElementById('awareness').value,
+    펀넬:     document.getElementById('funnel').value,
+    앵글:     document.getElementById('angle').value,
+    기획법:   document.getElementById('framework').value,
+  };
+
+  try {
+    const res = await fetch(`${SERVER}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '생성 실패');
+    }
+
+    const result = await res.json();
+    // code.js로 결과 전달
+    parent.postMessage({ pluginMessage: { type: 'fill-frames', data: result } }, '*');
+
+    status.textContent = '✅ 생성 완료! Figma 프레임에 적용됐습니다.';
+    status.className = 'success';
+  } catch (e) {
+    status.textContent = `❌ ${e.message}`;
+    status.className = 'error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// 초기화
+loadConfig();
+</script>
+</body>
+</html>

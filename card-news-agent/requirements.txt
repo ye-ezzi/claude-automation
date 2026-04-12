@@ -4,3 +4,5 @@ google-auth-oauthlib
 anthropic
 python-dotenv
 pyyaml
+fastapi
+uvicorn[standard]
