@@ -190,7 +190,7 @@ def get_approved_rows(channel: str = Query(..., description="채널명")):
     for row in all_values[1:]:
         padded = row + [""] * (len(header) - len(row))
         status = padded[status_idx].strip() if status_idx is not None else ""
-        if status == "완료":
+        if status in ("완료", "본문 승인", "승인"):
             approved.append({header[i]: padded[i] for i in range(len(header))})
 
     return {"rows": approved, "fieldOrder": field_order}
