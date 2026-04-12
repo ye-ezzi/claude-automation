@@ -1,0 +1,133 @@
+service:
+  name: "내 브랜드"
+  desc: "브랜드 한 줄 설명"
+  label: "채널명"
+
+# 기획법 정의
+frameworks:
+  HIRA:
+    name: "HIRA"
+    structure: ["Hook", "Insight", "Reveal", "Action"]
+    desc: "훅으로 시작 → 인사이트 → 반전/공개 → 행동 유도"
+  HOS:
+    name: "HOS"
+    structure: ["Hook", "Offer", "Story"]
+    desc: "훅 → 제안 → 스토리로 설득"
+  PASO:
+    name: "PASO"
+    structure: ["Problem", "Agitation", "Solution", "Offer"]
+    desc: "문제 제기 → 감정 자극 → 해결책 → 제안"
+  PAF:
+    name: "PAF"
+    structure: ["Problem", "Agitation", "Fix"]
+    desc: "문제 찌르고 → 더 불안하게 → 해결"
+  BAD:
+    name: "BAD"
+    structure: ["Before", "After", "Difference"]
+    desc: "변화 강조형 — 이전/이후/차이"
+  LIST:
+    name: "LIST"
+    structure: ["숫자 리스트"]
+    desc: "숫자 리스트형 (3가지, 5단계 등)"
+  기본:
+    name: "기본"
+    structure: ["자유 구성"]
+    desc: "섹션타이틀 + 본문 자유 구성"
+
+# 드롭다운 옵션
+options:
+  인지단계:
+    - 인식
+    - 관심
+    - 고려
+    - 전환
+    - 충성
+  펀넬:
+    - ToFu
+    - MoFu
+    - BoFu
+    - 리텐션
+    - 바이럴
+  앵글:
+    - 공감
+    - 두려움
+    - 혜택
+    - 편의
+    - 사회적 증거
+    - 호기심
+    - 반전
+
+channels:
+  AI트렌드:
+    sheet_tab: "AI트렌드"
+    target: "프리랜서, 크리에이터"
+    tone: "친근하고 실용적, 어렵지 않게"
+    card01_fields:
+      - name: "헤드라인"
+        desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
+      - name: "컬러칩"
+        desc: "콘텐츠 관련 해시태그 (예: #AI자동화 #크리에이터)"
+    body_cards: 3
+    body_fields:
+      - name: "인풋텍스트"
+        desc: "본문, 60자 이내"
+      - name: "섹션타이틀"
+        desc: "소제목, 15자 이내"
+
+  재테크:
+    sheet_tab: "재테크"
+    target: "결혼 전후 2030 직장인"
+    tone: "신뢰감 있고 구체적, 숫자 중심"
+    card01_fields:
+      - name: "헤드라인"
+        desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
+      - name: "컬러칩"
+        desc: "재테크 관련 해시태그 (예: #부수입 #절세전략)"
+    body_cards: 3
+    body_fields:
+      - name: "섹션타이틀"
+        desc: "소제목, 15자 이내"
+      - name: "섹션텍스트"
+        desc: "섹션 설명, 30자 이내"
+      - name: "키워드"
+        desc: "이 섹션 핵심 키워드 (예: #통장쪼개기)"
+      - name: "인풋텍스트"
+        desc: "본문, 60자 이내"
+
+  마케팅:
+    sheet_tab: "마케팅"
+    target: "1인 크리에이터, 1인 비즈니스 준비생"
+    tone: "동기부여, 행동 유도형"
+    card01_fields:
+      - name: "키워드"
+        desc: "핵심 키워드/해시태그 (예: #마케팅전략)"
+      - name: "컬러칩"
+        desc: "서브 키워드 (예: #콘텐츠마케팅)"
+      - name: "헤드라인"
+        desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
+    body_cards: 3
+    body_fields:
+      - name: "섹션타이틀"
+        desc: "소제목, 15자 이내"
+      - name: "인풋텍스트"
+        desc: "본문, 60자 이내"
+
+thumbnail:
+  angles:
+    - name: 공감
+      desc: '"나도 그랬어요" — 독자 경험에 공감하며 시작'
+    - name: 두려움
+      desc: '"이렇게 안 하면 놓치게 됩니다" — 손실 회피 심리'
+    - name: 혜택
+      desc: '"이 방법을 쓰면 3배 빨라집니다" — 구체적 이익'
+    - name: 편의
+      desc: '"5분이면 충분합니다" — 쉽고 간단함 강조'
+    - name: 사회적 증거
+      desc: '"OO명이 이미 쓰고 있어요" — 신뢰와 레퍼런스'
+    - name: 호기심
+      desc: '"이걸 모르면 손해입니다" — 궁금증 유발'
+    - name: 반전
+      desc: '"사실은 반대입니다" — 기존 상식 뒤집기'
+  headline_lines: 3
+  chars_per_line_min: 7
+  chars_per_line_max: 12
