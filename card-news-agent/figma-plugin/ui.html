@@ -2,8 +2,6 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>카드뉴스 Figma 적용</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -13,7 +11,16 @@
     color: #1e1e1e;
     padding: 16px;
   }
-  h1 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+  h1 { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+  .info {
+    background: #f0f6ff;
+    border: 1px solid #c7deff;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    font-size: 11px;
+    color: #1a5fb4;
+  }
   .field { margin-bottom: 12px; }
   label { display: block; font-weight: 600; margin-bottom: 4px; color: #444; }
   select {
@@ -25,12 +32,12 @@
     background: #fafafa;
     outline: none;
   }
-  select:focus { border-color: #18a0fb; background: #fff; }
+  select:focus { border-color: #18a0fb; }
   select:disabled { background: #f0f0f0; color: #aaa; }
   .btn {
     width: 100%;
     padding: 10px;
-    margin-top: 14px;
+    margin-top: 4px;
     background: #18a0fb;
     color: #fff;
     border: none;
@@ -47,117 +54,88 @@
     color: #666;
     min-height: 16px;
     text-align: center;
-    line-height: 1.5;
   }
   #status.error { color: #e53e3e; }
-  #status.success { color: #38a169; }
+  #status.ok { color: #38a169; }
 </style>
 </head>
 <body>
 
-<h1>카드뉴스 Figma 적용</h1>
+<h1>카드뉴스 자동생성</h1>
+
+<div class="info" id="page-info">현재 페이지 감지 중...</div>
 
 <div class="field">
-  <label>채널</label>
-  <select id="channel" onchange="loadFolders()">
-    <option value="">채널 선택...</option>
-  </select>
-</div>
-
-<div class="field">
-  <label>주제 (폴더명)</label>
+  <label>주제 선택</label>
   <select id="folder" disabled>
-    <option value="">채널을 먼저 선택하세요</option>
+    <option value="">불러오는 중...</option>
   </select>
 </div>
 
-<button class="btn" id="btn" onclick="applyToFigma()" disabled>Figma에 적용</button>
-<div id="status">서버 연결 중...</div>
+<button class="btn" id="btn" onclick="apply()" disabled>생성하기</button>
+<div id="status"></div>
 
 <script>
 const SERVER = 'http://localhost:8000';
+let currentChannel = '';
 
-async function init() {
-  try {
-    const res = await fetch(`${SERVER}/config`);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
+// Figma에서 현재 페이지 이름 수신
+window.onmessage = async (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg || msg.type !== 'page-name') return;
 
-    const sel = document.getElementById('channel');
-    sel.innerHTML = '<option value="">채널 선택...</option>';
-    (data.channels || []).forEach(ch => {
-      const opt = document.createElement('option');
-      opt.value = ch;
-      opt.textContent = ch;
-      sel.appendChild(opt);
-    });
+  const pageName = msg.name;
+  currentChannel = pageName;
 
-    setStatus('✅ 서버 연결됨', 'success');
-  } catch {
-    setStatus('❌ 서버 연결 실패\npython3 server.py 실행 확인', 'error');
-  }
-}
+  document.getElementById('page-info').textContent = `채널: ${pageName}`;
+  await loadFolders(pageName);
+};
 
-async function loadFolders() {
-  const channel = document.getElementById('channel').value;
-  const folderSel = document.getElementById('folder');
+async function loadFolders(channel) {
+  const sel = document.getElementById('folder');
   const btn = document.getElementById('btn');
-
-  folderSel.disabled = true;
-  btn.disabled = true;
-  folderSel.innerHTML = '<option value="">불러오는 중...</option>';
-
-  if (!channel) {
-    folderSel.innerHTML = '<option value="">채널을 먼저 선택하세요</option>';
-    return;
-  }
 
   try {
     const res = await fetch(`${SERVER}/rows?channel=${encodeURIComponent(channel)}`);
     if (!res.ok) throw new Error('시트 읽기 실패');
     const rows = await res.json();
 
-    folderSel.innerHTML = '<option value="">주제 선택...</option>';
+    sel.innerHTML = '<option value="">주제 선택...</option>';
     rows.forEach(r => {
       const opt = document.createElement('option');
       opt.value = r['폴더명'];
       opt.textContent = r['폴더명'];
-      folderSel.appendChild(opt);
+      sel.appendChild(opt);
     });
 
-    folderSel.disabled = false;
-    folderSel.onchange = () => {
-      btn.disabled = !folderSel.value;
-    };
-    setStatus(`${rows.length}개 항목 로드됨`, 'success');
+    sel.disabled = false;
+    sel.onchange = () => { btn.disabled = !sel.value; };
+    setStatus('');
   } catch (e) {
-    folderSel.innerHTML = '<option value="">불러오기 실패</option>';
-    setStatus(`❌ ${e.message}`, 'error');
+    sel.innerHTML = `<option value="">서버 연결 실패</option>`;
+    setStatus('python3 server.py 실행 확인', 'error');
   }
 }
 
-async function applyToFigma() {
-  const channel = document.getElementById('channel').value;
+async function apply() {
   const folder = document.getElementById('folder').value;
+  if (!folder || !currentChannel) return;
+
   const btn = document.getElementById('btn');
-
-  if (!channel || !folder) return;
-
   btn.disabled = true;
-  setStatus('⏳ 시트에서 데이터 가져오는 중...', '');
+  setStatus('시트에서 가져오는 중...');
 
   try {
     const res = await fetch(
-      `${SERVER}/row?channel=${encodeURIComponent(channel)}&folder=${encodeURIComponent(folder)}`
+      `${SERVER}/row?channel=${encodeURIComponent(currentChannel)}&folder=${encodeURIComponent(folder)}`
     );
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || '데이터 불러오기 실패');
+      throw new Error(err.detail || '실패');
     }
     const data = await res.json();
-
     parent.postMessage({ pluginMessage: { type: 'fill-frames', data } }, '*');
-    setStatus('✅ Figma 프레임에 적용 완료!', 'success');
+    setStatus('적용 완료!', 'ok');
   } catch (e) {
     setStatus(`❌ ${e.message}`, 'error');
   } finally {
@@ -168,10 +146,8 @@ async function applyToFigma() {
 function setStatus(msg, cls) {
   const el = document.getElementById('status');
   el.textContent = msg;
-  el.className = cls;
+  el.className = cls || '';
 }
-
-init();
 </script>
 </body>
 </html>

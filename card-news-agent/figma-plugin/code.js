@@ -1,106 +1,58 @@
 /**
- * 카드뉴스 자동생성 Figma 플러그인 — 메인 로직
+ * 카드뉴스 자동생성 Figma 플러그인
  *
- * ui.html에서 생성된 카드 내용을 받아
- * 현재 선택된 프레임(또는 전체 페이지)의 텍스트 레이어에 채워 넣습니다.
+ * 현재 Figma 페이지 이름 → 채널 자동 감지
+ * 구글 시트에서 해당 채널 데이터 가져와 텍스트 레이어에 채움
  *
- * ── 레이어 네이밍 규칙 ──────────────────────────────────────────
- *  Card01_헤드라인     Card01_컬러칩
- *  Card02_섹션타이틀   Card02_섹션텍스트   Card02_키워드   Card02_인풋텍스트
- *  Card03_*           Card04_*            (동일 구조)
- *  Card05_CTA
- *  컨셉               기대반응
- *
- * 서버 응답 키(예: "Card02 섹션타이틀")를 언더스코어 버전(Card02_섹션타이틀)으로
- * 정규화하여 레이어를 찾습니다.
- * ────────────────────────────────────────────────────────────────
+ * 레이어 이름은 시트 컬럼명과 동일하게 (공백 포함):
+ *   "Card01 헤드라인", "Card02 섹션타이틀", "Card02 섹션텍스트" ...
  */
 
-figma.showUI(__html__, { width: 300, height: 520 });
+figma.showUI(__html__, { width: 260, height: 320 });
+
+// 현재 페이지 이름을 UI로 전달
+figma.ui.postMessage({
+  type: 'page-name',
+  name: figma.currentPage.name
+});
 
 figma.ui.onmessage = async (msg) => {
   if (msg.type !== 'fill-frames') return;
 
-  const data = msg.data; // { "Card02 섹션타이틀": "...", ... }
-
-  // 서버 키 → Figma 레이어명 변환 (공백 → 언더스코어)
-  const layerMap = {};
-  for (const [key, value] of Object.entries(data)) {
-    const layerName = key.replace(/ /g, '_');
-    layerMap[layerName] = value;
-  }
-
-  // CTA 키 별칭 처리 ("Card05 CTA 유도문구" → "Card05_CTA")
-  if (layerMap['Card05_CTA_유도문구']) {
-    layerMap['Card05_CTA'] = layerMap['Card05_CTA_유도문구'];
-  }
-
-  // 탐색 범위: 선택된 노드 우선, 없으면 현재 페이지 전체
-  const roots =
-    figma.currentPage.selection.length > 0
-      ? figma.currentPage.selection
-      : figma.currentPage.children;
+  const data = msg.data;
+  const roots = figma.currentPage.children;
 
   let filled = 0;
-  let missed = [];
 
   for (const root of roots) {
-    filled += await fillNode(root, layerMap);
+    filled += await fillNode(root, data);
   }
 
-  // 채워지지 않은 레이어 파악
-  for (const layerName of Object.keys(layerMap)) {
-    if (layerMap[layerName]) {
-      const found = findByName(
-        figma.currentPage.selection.length > 0
-          ? figma.currentPage.selection
-          : figma.currentPage.children,
-        layerName
-      );
-      if (!found) missed.push(layerName);
-    }
-  }
-
-  if (missed.length > 0) {
-    console.log('레이어를 찾지 못했습니다:', missed);
-  }
-
-  figma.notify(`✅ ${filled}개 텍스트 채움 완료`);
+  figma.notify(filled > 0 ? `✅ ${filled}개 텍스트 적용 완료` : '⚠️ 일치하는 레이어 없음 — 레이어 이름 확인 필요');
 };
 
-/**
- * 재귀로 노드를 탐색하며 이름이 일치하는 텍스트 레이어에 내용을 채운다.
- * @returns {number} 채워진 레이어 수
- */
-async function fillNode(node, layerMap) {
+async function fillNode(node, data) {
   let count = 0;
-  const layerName = node.name.trim();
+  const name = node.name.trim();
 
-  if (node.type === 'TEXT' && layerMap[layerName] !== undefined) {
-    await figma.loadFontAsync(node.fontName);
-    node.characters = String(layerMap[layerName]);
-    count++;
+  if (node.type === 'TEXT') {
+    // 시트 컬럼명 그대로 매칭 (공백 포함)
+    // 언더스코어 버전도 함께 시도
+    const underscored = name.replace(/_/g, ' ');
+    const value = data[name] ?? data[underscored] ?? null;
+
+    if (value !== null && value !== '') {
+      await figma.loadFontAsync(node.fontName);
+      node.characters = String(value);
+      count++;
+    }
   }
 
   if ('children' in node) {
     for (const child of node.children) {
-      count += await fillNode(child, layerMap);
+      count += await fillNode(child, data);
     }
   }
 
   return count;
-}
-
-/**
- * 주어진 노드 배열에서 이름이 일치하는 첫 번째 노드를 반환 (재귀)
- */
-function findByName(nodes, name) {
-  for (const node of nodes) {
-    if (node.name.trim() === name) return node;
-    if ('children' in node) {
-      const found = findByName(node.children, name);
-      if (found) return found;
-    }
-  }
-  return null;
 }
