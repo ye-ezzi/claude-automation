@@ -105,6 +105,8 @@ def fetch_sheet_data():
             "hook_3sec": [r.get("첫 3초 훅", "")   for r in filtered if r.get("첫 3초 훅")],
             "hook_copy": [r.get("후킹 멘트", "")    for r in filtered if r.get("후킹 멘트")],
             "caption":   [r.get("캡션", "")         for r in filtered if r.get("캡션")],
+            "good":      [r.get("좋은점", "")        for r in filtered if r.get("좋은점")],
+            "bad":       [r.get("아쉬운점", "")      for r in filtered if r.get("아쉬운점")],
         }
         print("  ✅ 실시간 시트 데이터 반영 완료")
         return patterns, True
@@ -285,6 +287,9 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
     thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:6]
     captions   = patterns.get("caption",   FALLBACK_PATTERNS["caption"])[:4]
 
+    goods = patterns.get("good", [])[:8]
+    bads  = patterns.get("bad",  [])[:8]
+
     trend_lines = []
     for cat, items in trends.items():
         trend_lines.append(f"\n**{cat}:**")
@@ -296,6 +301,15 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
         "\n".join(f"- {t}" for t in recent_titles[:50])
         if recent_titles else "- (첫 실행 — 제한 없음)"
     )
+    feedback_block = ""
+    if goods or bads:
+        feedback_block = "\n## 과거 콘텐츠 피드백 (시트 기반)\n"
+        if goods:
+            feedback_block += "**잘 된 점 (이 방향으로 더):**\n"
+            feedback_block += "\n".join(f"- {g}" for g in goods) + "\n"
+        if bads:
+            feedback_block += "**아쉬운 점 (이 실수 반복 금지):**\n"
+            feedback_block += "\n".join(f"- {b}" for b in bads) + "\n"
 
     return f"""당신은 10년 경력의 재테크 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) 재테크 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
 
@@ -307,7 +321,7 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
-
+{feedback_block}
 ## 실제 시트 패턴
 **썸네일 훅 패턴:**
 {chr(10).join(f"- {t}" for t in thumbnails)}
@@ -376,10 +390,21 @@ def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, th
 def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
     week_num = datetime.now().isocalendar()[1]
+    goods = patterns.get("good", [])[:8]
+    bads  = patterns.get("bad",  [])[:8]
     avoid_block = (
         "\n".join(f"- {t}" for t in recent_titles[:50])
         if recent_titles else "- (첫 실행 — 제한 없음)"
     )
+    feedback_block = ""
+    if goods or bads:
+        feedback_block = "\n## 과거 콘텐츠 피드백 (시트 기반)\n"
+        if goods:
+            feedback_block += "**잘 된 점 (이 방향으로 더):**\n"
+            feedback_block += "\n".join(f"- {g}" for g in goods) + "\n"
+        if bads:
+            feedback_block += "**아쉬운 점 (이 실수 반복 금지):**\n"
+            feedback_block += "\n".join(f"- {b}" for b in bads) + "\n"
 
     trend_lines = []
     for cat, items in trends.items():
@@ -397,7 +422,7 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
-
+{feedback_block}
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
