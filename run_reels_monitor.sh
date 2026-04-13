@@ -13,16 +13,14 @@ mkdir -p "$LOG_DIR"
 
 # 가상환경이 없으면 자동 설치
 if [ ! -f "$VENV_PYTHON" ]; then
-    echo "[$TIMESTAMP] 가상환경이 없습니다. 자동 설치 중..." >> "$LOG_FILE"
-    bash "${SCRIPT_DIR}/setup_venv.sh" >> "$LOG_FILE" 2>&1
+    echo "[$TIMESTAMP] 가상환경이 없습니다. 자동 설치 중..."
+    bash "${SCRIPT_DIR}/setup_venv.sh"
 fi
 
-echo "[$TIMESTAMP] Starting reels_translator.py --monitor" >> "$LOG_FILE"
+echo "[$TIMESTAMP] Starting reels_translator.py --monitor"
 
-OUTPUT=$(cd "$SCRIPT_DIR" && "$VENV_PYTHON" reels_translator.py --monitor 2>&1)
-EXIT_CODE=$?
-
-echo "$OUTPUT" >> "$LOG_FILE"
+cd "$SCRIPT_DIR" && "$VENV_PYTHON" reels_translator.py --monitor 2>&1 | tee -a "$LOG_FILE"
+EXIT_CODE=${PIPESTATUS[0]}
 
 if [ $EXIT_CODE -eq 0 ]; then
     SUBJECT="[완료] Reels Translator Monitor - $(date '+%Y-%m-%d')"
@@ -30,18 +28,17 @@ if [ $EXIT_CODE -eq 0 ]; then
 
 실행 시각: $TIMESTAMP
 
---- 실행 결과 ---
-$OUTPUT"
+--- 로그 파일 ---
+$LOG_FILE"
 else
     SUBJECT="[오류] Reels Translator Monitor - $(date '+%Y-%m-%d')"
     BODY="❌ 오류가 발생했습니다. (exit code: $EXIT_CODE)
 
 실행 시각: $TIMESTAMP
 
---- 오류 내용 ---
-$OUTPUT"
+--- 로그 파일 ---
+$LOG_FILE"
 fi
 
 echo "$BODY" | mail -s "$SUBJECT" "$TO_EMAIL"
-
-echo "[$TIMESTAMP] Email sent to $TO_EMAIL (exit code: $EXIT_CODE)" >> "$LOG_FILE"
+echo "[$TIMESTAMP] Email sent to $TO_EMAIL (exit code: $EXIT_CODE)" | tee -a "$LOG_FILE"
