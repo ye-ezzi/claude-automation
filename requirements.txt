@@ -3,3 +3,4 @@ openai-whisper
 deep-translator
 browser-cookie3
 requests
+numpy<2
