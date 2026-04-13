@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PYTHON="${SCRIPT_DIR}/venv/bin/python3"
 TO_EMAIL="lyj990701@gmail.com"
-LOG_DIR="/Users/comcom/logs"
+LOG_DIR="$HOME/logs"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 LOG_FILE="${LOG_DIR}/reels_monitor_$(date '+%Y-%m-%d').log"
 
