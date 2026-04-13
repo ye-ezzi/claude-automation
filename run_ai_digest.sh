@@ -9,9 +9,14 @@ LOG_FILE="${LOG_DIR}/ai_digest_$(date '+%Y-%m-%d').log"
 
 mkdir -p "$LOG_DIR"
 
-# .env 파일에서 환경변수 로드
+# .env 파일에서 환경변수 로드 (공백 포함 값 지원)
 if [ -f "${SCRIPT_DIR}/.env" ]; then
-    export $(grep -v '^#' "${SCRIPT_DIR}/.env" | xargs)
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+        value="${value%\"}"
+        value="${value#\"}"
+        export "$key=$value"
+    done < "${SCRIPT_DIR}/.env"
 fi
 
 # 가상환경이 없으면 자동 설치
