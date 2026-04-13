@@ -47,6 +47,12 @@ CONFIG = {
         "vizznary",
         "elicoleman_",
         "digitalbynana",
+        "stevenwommack",
+        "why.cgi",
+        "tumifnx",
+        "anotherworldcore",
+        "re4ee",
+        "nomadatoast",
     ],
 
     # X 계정 (@ 제외)
