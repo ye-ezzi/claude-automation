@@ -49,10 +49,12 @@ figma.ui.onmessage = async (msg) => {
     const clones = [];
     for (const master of masters) {
       const clone = master.clone();
-      clone.x = master.x + offsetX;
-      clone.name = clone.name.replace('마스터_', `${folder}_`);
-      figma.currentPage.appendChild(clone);
-      clones.push({ clone, master });
+      // 컴포넌트 인스턴스면 detach해서 텍스트 편집 가능하게
+      const detached = clone.type === 'INSTANCE' ? clone.detachInstance() : clone;
+      detached.x = master.x + offsetX;
+      detached.name = detached.name.replace('마스터_', `${folder}_`);
+      figma.currentPage.appendChild(detached);
+      clones.push({ clone: detached, master });
     }
 
     // 각 복제 프레임에 데이터 채우기
