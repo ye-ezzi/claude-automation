@@ -160,7 +160,7 @@ def get_row(
 
     field_order = {
         "Card01": card01_fields,                          # 마스터_썸네일_*
-        "CTA": ["Card05 CTA 유도문구"],                    # 마스터_CTA_*
+        "CTA": ["Card06 CTA 유도문구"],                    # 마스터_CTA_*
     }
     for i in range(n_body):
         card_key = f"Card{i + 2:02d}"                    # Card02, Card03, Card04
@@ -196,7 +196,7 @@ def get_approved_rows(channel: str = Query(..., description="채널명")):
     card01_fields = [f["name"] for f in channel_cfg.get("card01_fields", [])]
     n_body = channel_cfg.get("body_cards", 3)
 
-    field_order = {"Card01": card01_fields, "CTA": ["Card05 CTA 유도문구"]}
+    field_order = {"Card01": card01_fields, "CTA": ["Card06 CTA 유도문구"]}
     for i in range(n_body):
         field_order[f"Card{i + 2:02d}"] = body_fields
 

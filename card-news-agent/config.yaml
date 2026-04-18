@@ -67,7 +67,7 @@ channels:
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
       - name: "컬러칩"
         desc: "콘텐츠 관련 해시태그 (예: #AI자동화 #크리에이터)"
-    body_cards: 3
+    body_cards: 4
     body_fields:
       - name: "인풋텍스트"
         desc: "본문, 60자 이내"
@@ -83,7 +83,7 @@ channels:
         desc: "재테크 관련 해시태그 (예: #부수입 #절세전략)"
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
-    body_cards: 3
+    body_cards: 4
     body_fields:
       - name: "섹션타이틀"
         desc: "소제목, 15자 이내"
@@ -105,7 +105,7 @@ channels:
         desc: "서브 키워드 (예: #콘텐츠마케팅)"
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
-    body_cards: 3
+    body_cards: 4
     body_fields:
       - name: "섹션타이틀"
         desc: "소제목, 15자 이내"

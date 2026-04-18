@@ -22,7 +22,8 @@ FRAMEWORK_GUIDE = {
         "cards": {
             "Card02": "Hook — 공감 또는 충격적 사실로 주의 잡기",
             "Card03": "Insight — 핵심 인사이트/정보 전달",
-            "Card04": "Reveal + Action — 반전 또는 구체적 실천 방법",
+            "Card04": "Reveal — 반전 또는 새로운 시각 제시",
+            "Card05": "Action — 구체적 실천 방법 제안",
         }
     },
     "HOS": {
@@ -31,14 +32,16 @@ FRAMEWORK_GUIDE = {
             "Card02": "Hook — 강렬한 첫 질문 또는 공감 포인트",
             "Card03": "Offer — 핵심 제안/솔루션",
             "Card04": "Story — 실제 사례 또는 스토리로 설득",
+            "Card05": "Summary — 핵심 메시지 정리 및 행동 촉구",
         }
     },
     "PASO": {
         "desc": "Problem → Agitation → Solution → Offer",
         "cards": {
             "Card02": "Problem — 타겟이 겪는 구체적 문제",
-            "Card03": "Agitation + Solution — 문제를 더 와닿게 → 해결책",
-            "Card04": "Offer — 구체적인 실천 제안",
+            "Card03": "Agitation — 문제를 더 와닿게 감정 자극",
+            "Card04": "Solution — 해결책 제시",
+            "Card05": "Offer — 구체적인 실천 제안",
         }
     },
     "PAF": {
@@ -47,6 +50,7 @@ FRAMEWORK_GUIDE = {
             "Card02": "Problem — 문제 제기",
             "Card03": "Agitation — 그대로 두면 어떻게 되는지 불안 자극",
             "Card04": "Fix — 명확하고 간단한 해결법",
+            "Card05": "Result — 해결 후 기대되는 변화/결과",
         }
     },
     "BAD": {
@@ -55,6 +59,7 @@ FRAMEWORK_GUIDE = {
             "Card02": "Before — 변화 전의 상황/문제",
             "Card03": "After — 변화 후의 모습/결과",
             "Card04": "Difference — 무엇이 달라졌는지 핵심 차이",
+            "Card05": "Action — 독자가 지금 당장 할 수 있는 첫 번째 행동",
         }
     },
     "LIST": {
@@ -62,7 +67,8 @@ FRAMEWORK_GUIDE = {
         "cards": {
             "Card02": "리스트 항목 1~2 — 첫 번째, 두 번째 포인트",
             "Card03": "리스트 항목 3~4 — 세 번째, 네 번째 포인트",
-            "Card04": "리스트 항목 5 + 정리 — 마지막 포인트와 핵심 요약",
+            "Card04": "리스트 항목 5~6 — 다섯 번째, 여섯 번째 포인트",
+            "Card05": "정리 — 핵심 요약 및 독자 행동 유도",
         }
     },
     "기본": {
@@ -70,7 +76,8 @@ FRAMEWORK_GUIDE = {
         "cards": {
             "Card02": "핵심 내용 1",
             "Card03": "핵심 내용 2",
-            "Card04": "핵심 내용 3 + 정리",
+            "Card04": "핵심 내용 3",
+            "Card05": "핵심 내용 4 + 정리",
         }
     },
 }
@@ -113,8 +120,8 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
 {fields_guide}
 
 ## 출력 규칙
-- Card02, Card03, Card04 각각에 대해 아래 필드를 생성하세요
-- Card05 CTA 유도문구: 저장/공유/댓글 행동 유도 (1줄)
+- Card02, Card03, Card04, Card05 각각에 대해 아래 필드를 생성하세요
+- Card06 CTA 유도문구: 저장/공유/댓글 행동 유도 (1줄)
 - 컨셉: 이 카드뉴스의 핵심 메시지 (1문장)
 - 기대반응: 독자의 기대 반응 (예: "나도 해봐야겠다 / 저장")
 
@@ -125,7 +132,8 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
   "Card02": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
   "Card03": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
   "Card04": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
-  "Card05 CTA 유도문구": "...",
+  "Card05": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
+  "Card06 CTA 유도문구": "...",
   "컨셉": "...",
   "기대반응": "..."
 }}"""
@@ -229,14 +237,14 @@ def generate(row: dict, channel_cfg: dict) -> dict:
         if row.get(key, "").strip():
             result[key] = row[key]
 
-    for card_key in ["Card02", "Card03", "Card04"]:
+    for card_key in ["Card02", "Card03", "Card04", "Card05"]:
         if card_key in data:
             for field, value in data[card_key].items():
                 result[f"{card_key} {field}"] = value
 
-    result["Card05 CTA 유도문구"] = data.get("Card05 CTA 유도문구", "")
+    result["Card06 CTA 유도문구"] = data.get("Card06 CTA 유도문구", "")
     result["컨셉"] = data.get("컨셉", "")
     result["기대반응"] = data.get("기대반응", "")
-    result["본문 상태"] = "완료"
+    result["본문 상태"] = "본문 승인"
 
     return result
