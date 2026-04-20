@@ -372,8 +372,8 @@ def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, th
     text = ""
     with client.messages.stream(
         model="claude-opus-4-6",
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
+        thinking={"type": "enabled", "budget_tokens": 2000},
+        max_tokens=10000,
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
         for chunk in stream.text_stream:
@@ -469,8 +469,8 @@ def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, the
     text = ""
     with client.messages.stream(
         model="claude-opus-4-6",
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
+        thinking={"type": "enabled", "budget_tokens": 2000},
+        max_tokens=10000,
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
         for chunk in stream.text_stream:
