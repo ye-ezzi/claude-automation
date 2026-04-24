@@ -11,6 +11,7 @@ STEP 5. Gmail HTML 이메일 발송 (tier/engine 배지 포함)
 import os
 import re
 import json
+import time
 import smtplib
 import requests
 import xml.etree.ElementTree as ET
@@ -42,7 +43,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 SHEETS_URL = (
     "https://script.google.com/macros/s/"
     "AKfycbxFx0hkilEV-wLasfiIyv_Zchzi7PQWa8_qvdDpg_hsc98v_QKK3CsiwT1mW9I_hewg"
-    "/exec"
+    "/exec?action=readSheet&sheet=Posts"
 )
 
 OUTPUT_DIR   = os.path.expanduser("~/reels_outputs")
@@ -110,6 +111,34 @@ POLICY_KEYWORDS = [
     "청약", "ISA", "IRP", "연금저축", "금리", "기준금리",
     "부동산", "취득세", "종부세", "연말정산", "퇴직연금",
 ]
+
+# 시트 접근 실패 시 폴백 패턴
+FALLBACK_PATTERNS = {
+    "thumbnail": [
+        "직장인 ISA 이렇게 쓰면 세금 0원 → 숫자형",
+        "월급 300인데 저축 0원인 이유 5가지 → 실패 이유형",
+        "IRP 모르면 퇴직금 30% 날립니다 → 모르면 손해형",
+        "30대 재테크 루틴 공개합니다 → 공개형",
+        "청약 vs ISA vs IRP 뭐부터? → 비교형",
+        "재테크 처음이라면 이 순서대로 → 순서형",
+    ],
+    "hook_3sec": [
+        "월급날만 기다리는데 왜 통장에 돈이 없을까요?",
+        "이거 모르면 세금만 더 내는 거예요.",
+        "재테크 시작하려는데 뭐부터 해야 할지 모르죠?",
+        "직장인 재테크 딱 이 순서대로만 하세요.",
+    ],
+    "hook_copy": [
+        "댓글에 '재테크' 남겨주시면 자료 보내드립니다!",
+        "저장해두고 월급날 꺼내보세요 📌",
+        "팔로우하면 매주 재테크 꿀팁 드려요",
+    ],
+    "caption": [
+        "오프닝: 직장인 공감 문장 (월급 받아도 남는 게 없죠?)",
+        "본문: 핵심 정보 2-3줄, 숫자 포함",
+        "CTA: 댓글에 키워드 남기면 자료 DM",
+    ],
+}
 
 # RSS 소스
 _FIN_RSS_SOURCES = {
@@ -187,34 +216,35 @@ def search_trends() -> dict:
 
 
 def fetch_sheet_data() -> tuple[dict, bool]:
-    """Google Sheets Apps Script에서 피드백 데이터 수집."""
+    """Google Sheets에서 분야(C열) 재테크 관련 행만 필터링해 패턴 수집."""
     FIN_FILTER = {"재테크", "경제", "투자", "부동산", "주식"}
-    patterns: dict[str, list[str]] = {"good": [], "bad": []}
     try:
-        resp = requests.get(SHEETS_URL, timeout=10)
+        resp = requests.get(SHEETS_URL, timeout=15)
         resp.raise_for_status()
-        rows = resp.json()
-        if not isinstance(rows, list):
-            return patterns, False
+        data = resp.json()
+        results = data.get("results", [])
 
-        for row in rows:
-            field = str(row.get("분야", ""))
-            if not any(kw in field for kw in FIN_FILTER):
-                continue
-            result = str(row.get("결과", "")).strip()
-            title  = str(row.get("제목", "")).strip()
-            if not title:
-                continue
-            if result in ("good", "성공", "잘됨", "바이럴"):
-                patterns["good"].append(title)
-            elif result in ("bad", "실패", "저조"):
-                patterns["bad"].append(title)
+        # 분야(C열)에 재테크 관련 키워드 포함된 행만 필터
+        filtered = [
+            r for r in results
+            if any(kw in str(r.get("분야", "")) for kw in FIN_FILTER)
+        ]
+        print(f"  → 전체 {len(results)}행 중 재테크 {len(filtered)}행 필터링")
 
-        print(f"  📊 시트 데이터: good={len(patterns['good'])}, bad={len(patterns['bad'])}")
+        patterns = {
+            "thumbnail": [r.get("썸네일 문구", "") for r in filtered if r.get("썸네일 문구")],
+            "hook_3sec": [r.get("첫 3초 훅",   "") for r in filtered if r.get("첫 3초 훅")],
+            "hook_copy": [r.get("후킹 멘트",   "") for r in filtered if r.get("후킹 멘트")],
+            "caption":   [r.get("캡션",        "") for r in filtered if r.get("캡션")],
+            "good":      [r.get("좋은점",      "") for r in filtered if r.get("좋은점")],
+            "bad":       [r.get("아쉬운점",    "") for r in filtered if r.get("아쉬운점")],
+        }
+        print("  ✅ 실시간 시트 데이터 반영 완료")
         return patterns, True
+
     except Exception as e:
-        print(f"  시트 수집 실패: {e}")
-        return patterns, False
+        print(f"  ⚠️  시트 접근 실패 ({e}) → 폴백 데이터 사용")
+        return FALLBACK_PATTERNS, False
 
 
 # ══════════════════════════════════════════
@@ -400,121 +430,274 @@ def monthly_keyword_tree_update_finance(history: dict, client) -> dict:
 
 
 # ══════════════════════════════════════════
-# Part 4: 프롬프트 / 이메일 / main()
+# Part 4: 히스토리 / 폴백 유틸
 # ══════════════════════════════════════════
 
-def build_idea_prompt_finance(kw_slot: dict, feedback_examples: str, history_titles: list[str]) -> str:
-    root    = kw_slot["root_keyword"]
-    sub     = kw_slot["sub_keyword"]
-    engine  = kw_slot["engine"]
-    persona = kw_slot["persona"]
-    tier    = kw_slot["tier"]
+def load_recent_titles(days: int = 21) -> list[str]:
+    """최근 N일 치 아이디어 제목 로드 (중복 방지용)."""
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as f:
+            history = json.load(f)
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        recent = []
+        for date, titles in history.items():
+            if len(date) == 10 and date >= cutoff and isinstance(titles, list):
+                recent.extend(titles)
+        return recent
+    except Exception:
+        return []
 
-    tier_guide = {
-        "유입":   "처음 보는 사람도 멈추게. 전문용어 최소화. 저장/팔로우 유도.",
-        "전환":   "DM/댓글 CTA 필수. 숫자·비교·체크리스트 형식 선호.",
-        "타이밍": '"오늘 이거 나왔어요" 긴박감. 정책 변경일 당일 업로드 가정.',
-    }.get(tier, "")
 
-    recent_titles_str = "\n".join(history_titles[:30]) if history_titles else "없음"
+def save_titles_to_history(reels_output: str) -> None:
+    """생성된 아이디어 제목을 history 파일에 저장."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    titles = re.findall(r"\*\*아이디어 제목:\*\*\s*(.+)", reels_output)
+    if not titles:
+        return
+    history = {}
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            pass
+    history[today] = [t.strip() for t in titles]
+    cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    history = {k: v for k, v in history.items() if k >= cutoff or not (len(k) == 10)}
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+    print(f"  📝 히스토리 저장: {len(titles)}개 제목 → {HISTORY_FILE}")
 
-    return f"""채널 포지셔닝: "바쁜 직장인도 월급날 30분이면 챙기는 재테크 루틴"
-톤: 직장인 공감형 — 데이터 기반, 군더더기 없이, 아래 보지 않음
 
-## 오늘의 키워드 슬롯
-- 루트: {root}
-- 서브: {sub}  ← 제목 앞 15자 안에 반드시 포함
-- 엔진: {engine} — {CONTENT_ENGINES[engine]}
-- 페르소나: {PERSONAS[persona]}
+def save_fallback_finance(reels_output: str, today_str: str) -> None:
+    """이메일 발송 실패 시 파일로 저장."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(OUTPUT_DIR, f"reels-finance-{today_str}.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"# 재테크 릴스 — {today_str}\n\n")
+        f.write(reels_output)
+    print(f"  💾 폴백 저장 완료: {path}")
 
-## tier 가이드 ({tier})
-{tier_guide}
 
-## 최근 생성 제목 (중복 금지)
-{recent_titles_str}
+# ══════════════════════════════════════════
+# Part 5: 프롬프트 / 이메일 / main()
+# ══════════════════════════════════════════
 
-## 과거 콘텐츠 피드백
-{feedback_examples}
+def build_reels_prompt_finance(
+    slots: list[dict],
+    patterns: dict,
+    trends: dict,
+    recent_titles: list[str],
+) -> str:
+    today = datetime.now().strftime("%Y년 %m월 %d일")
+    week_num = datetime.now().isocalendar()[1]
 
-## 출력 형식 (이 형식으로만)
-**아이디어 제목:** [제목 — 앞 15자에 서브 키워드 포함]
-**릴스 후킹 카피 (첫 3초):** [한 문장, 직장인 공감형]
-**릴스 촬영 연출:** [스마트폰만으로 가능한 장면]
+    thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:6]
+    hooks_3sec = patterns.get("hook_3sec", FALLBACK_PATTERNS["hook_3sec"])[:4]
+    hooks_copy = patterns.get("hook_copy", FALLBACK_PATTERNS["hook_copy"])[:4]
+    captions   = patterns.get("caption",   FALLBACK_PATTERNS["caption"])[:3]
+    goods      = patterns.get("good",  [])[:6]
+    bads       = patterns.get("bad",   [])[:6]
+
+    trend_lines = []
+    for cat, items in trends.items():
+        trend_lines.append(f"\n**{cat}:**")
+        for item in items[:3]:
+            trend_lines.append(f"  - {item['title']}: {item.get('snippet','')[:100]}")
+
+    avoid_block = (
+        "\n".join(f"- {t}" for t in recent_titles[:40])
+        if recent_titles else "- (첫 실행 — 제한 없음)"
+    )
+
+    feedback_block = ""
+    if goods or bads:
+        feedback_block = "\n## 과거 콘텐츠 피드백 (시트 기반)\n"
+        if goods:
+            feedback_block += "**잘 된 점:**\n" + "\n".join(f"- {g}" for g in goods) + "\n"
+        if bads:
+            feedback_block += "**아쉬운 점 (반복 금지):**\n" + "\n".join(f"- {b}" for b in bads) + "\n"
+
+    # 슬롯 테이블
+    slot_lines = []
+    for i, s in enumerate(slots, 1):
+        tier_guide = {
+            "유입":   "저장/팔로우 유도. 전문용어 최소화.",
+            "전환":   "DM/댓글 CTA 필수. 숫자·비교·체크리스트 선호.",
+            "타이밍": '"오늘 이거 나왔어요" 긴박감.',
+        }.get(s["tier"], "")
+        slot_lines.append(
+            f"#{i} | 루트: {s['root_keyword']} | 서브: {s['sub_keyword']} | "
+            f"tier: {s['tier']} ({tier_guide}) | 엔진: {s['engine']} | 페르소나: {PERSONAS[s['persona']]}"
+        )
+    slots_block = "\n".join(slot_lines)
+
+    return f"""당신은 재테크 인스타그램 채널 콘텐츠 디렉터입니다.
+오늘({today}, {week_num}주차) 아래 10개 슬롯에 맞춰 릴스 + 피드 아이디어를 각 1개씩 생성하세요.
+
+## 채널 포지셔닝
+"바쁜 직장인도 월급날 30분이면 챙기는 재테크 루틴"
+톤: 직장인 공감형 — 데이터 기반, 군더더기 없이
+
+## 10개 슬롯 (순서대로 생성)
+{slots_block}
+
+## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
+{avoid_block}
+{feedback_block}
+## 실제 시트 패턴 (이 톤·구조·길이를 최대한 따를 것)
+**썸네일 문구 패턴:**
+{chr(10).join(f"- {t}" for t in thumbnails)}
+
+**첫 3초 훅 패턴:**
+{chr(10).join(f"- {h}" for h in hooks_3sec)}
+
+**후킹 멘트:**
+{chr(10).join(f"- {h}" for h in hooks_copy)}
+
+**캡션 구조:**
+{chr(10).join(f"- {c}" for c in captions)}
+
+## 오늘의 트렌드
+{"".join(trend_lines)}
+
+## 출력 형식 (정확히 이 형식, 10개 모두)
+
+---
+
+**아이디어 #N**
+
+**아이디어 제목:** [제목 — 서브 키워드를 앞 15자 안에 반드시 포함]
+**릴스 후킹 카피 (첫 3초):** [스크롤 멈추게 하는 한 문장, 직장인 공감형]
+**릴스 촬영 연출:** [스마트폰만으로 가능한 구체적 장면]
 **피드 커버 카피:** [숫자 또는 질문으로 시작]
 **피드 슬라이드 구성:** [슬라이드 수 + 각 장 핵심 내용]
-**CTA:** ["댓글에 'XX' 남겨주시면 자료 보내드립니다" 형식]"""
+**CTA:** ["댓글에 'XX' 남겨주시면 자료 보내드립니다" 형식]
+
+---
+
+**중요 원칙:**
+- 썸네일: 숫자형 / 질문형 / 비교형 / "모르면 손해"형 골고루
+- 모든 아이디어는 스마트폰만으로 즉시 촬영 가능해야 함
+- tier별 가이드 반드시 반영할 것"""
+
+
+def generate_reels_finance(
+    slots: list[dict],
+    patterns: dict,
+    trends: dict,
+    client,
+    recent_titles: list[str],
+) -> str:
+    print("\n🤖 [STEP 4] 재테크 릴스 아이디어 10개 생성 중... (Haiku 스트리밍)")
+    prompt = build_reels_prompt_finance(slots, patterns, trends, recent_titles)
+
+    text = ""
+    with client.messages.stream(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=8000,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for chunk in stream.text_stream:
+            text += chunk
+            print(chunk, end="", flush=True)
+
+    print("\n  ✅ 아이디어 생성 완료")
+    return text
+
+
+def build_trend_html(trends: dict) -> str:
+    html = ""
+    for cat, items in trends.items():
+        html += f'<h3 style="color:#1E40AF;margin:16px 0 8px;font-size:15px;">{cat}</h3>'
+        html += '<ul style="margin:0 0 8px;padding-left:20px;">'
+        for item in items[:3]:
+            title   = item.get("title", "")
+            snippet = item.get("snippet", "")[:150]
+            url     = item.get("url", "")
+            link    = (f'<a href="{url}" style="color:#1a1a1a;font-weight:bold;">{title}</a>'
+                       if url else f"<strong>{title}</strong>")
+            html += f'<li style="margin-bottom:8px;">{link}<br><span style="color:#666;font-size:12px;">{snippet}</span></li>'
+        html += "</ul>"
+    return html
+
+
+def content_to_html(raw: str) -> str:
+    html = raw
+    html = re.sub(r"\n---\n", '\n<hr style="border:none;border-top:1px solid #EBEBEB;margin:24px 0;">\n', html)
+    html = re.sub(
+        r"\*\*(아이디어 #\d+)\*\*",
+        r'<h3 style="color:#1a1a1a;font-size:16px;margin:20px 0 12px;">💰 \1</h3>',
+        html,
+    )
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
+    html = html.replace("\n", "<br>")
+    return html
+
+
+def build_slot_badges(slots: list[dict]) -> str:
+    """슬롯별 tier/engine 배지 헤더 HTML 생성."""
+    TIER_BADGE = {
+        "유입":   '<span style="background:#2563EB;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🔵 유입</span>',
+        "전환":   '<span style="background:#16A34A;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🟢 전환</span>',
+        "타이밍": '<span style="background:#EA580C;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🟠 타이밍</span>',
+    }
+    ENGINE_TPL = '<span style="background:#6B7280;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-left:4px;">{e}</span>'
+    rows = []
+    for i, s in enumerate(slots, 1):
+        tier_b   = TIER_BADGE.get(s["tier"], "")
+        engine_b = ENGINE_TPL.format(e=s["engine"])
+        kw_b     = f'<span style="font-size:11px;color:#6B7280;margin-left:6px;">#{i} {s["root_keyword"]} / {s["sub_keyword"]}</span>'
+        rows.append(f'<div style="margin:4px 0;">{tier_b}{engine_b}{kw_b}</div>')
+    return "\n".join(rows)
 
 
 def build_email_html_finance(
     slots: list[dict],
-    ideas: list[dict],
+    reels_output: str,
     trends: dict,
     sheet_success: bool,
 ) -> str:
-    TIER_BADGE = {
-        "유입":   ('<span style="background:#2563EB;color:#fff;padding:2px 8px;'
-                   'border-radius:10px;font-size:11px;font-weight:bold;">🔵 유입</span>'),
-        "전환":   ('<span style="background:#16A34A;color:#fff;padding:2px 8px;'
-                   'border-radius:10px;font-size:11px;font-weight:bold;">🟢 전환</span>'),
-        "타이밍": ('<span style="background:#EA580C;color:#fff;padding:2px 8px;'
-                   'border-radius:10px;font-size:11px;font-weight:bold;">🟠 타이밍</span>'),
-    }
-    ENGINE_BADGE = (
-        '<span style="background:#6B7280;color:#fff;padding:2px 6px;'
-        'border-radius:8px;font-size:10px;margin-left:4px;">{engine}</span>'
-    )
-
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    # 트렌드 섹션
-    trend_html = ""
-    for cat, items in trends.items():
-        trend_html += f'<h3 style="color:#374151;margin:12px 0 6px;">{cat}</h3><ul>'
-        for it in items[:3]:
-            trend_html += f'<li><b>{it["title"]}</b><br><small>{it["snippet"]}</small></li>'
-        trend_html += "</ul>"
-
-    # 아이디어 카드
-    cards_html = ""
-    for idea in ideas:
-        slot = idea["slot"]
-        tier = slot["tier"]
-        engine = slot["engine"]
-        tier_b   = TIER_BADGE.get(tier, "")
-        engine_b = ENGINE_BADGE.format(engine=engine)
-        text_html = idea["text"].replace("\n", "<br>")
-
-        cards_html += f"""
-<div style="border:1px solid #E5E7EB;border-radius:10px;padding:16px;margin:12px 0;background:#FAFAFA;">
-  <div style="margin-bottom:8px;">{tier_b}{engine_b}</div>
-  <div style="font-size:12px;color:#6B7280;margin-bottom:8px;">
-    🔑 <b>{slot["root_keyword"]}</b> / {slot["sub_keyword"]}
-  </div>
-  <div style="font-size:14px;line-height:1.7;">{text_html}</div>
-</div>"""
-
-    sheet_status = "✅ 성공" if sheet_success else "❌ 실패"
+    today_kr    = datetime.now().strftime("%Y년 %m월 %d일")
+    now_str     = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
+    data_status = "✅ 실시간 시트 데이터 반영" if sheet_success else "⚠️ 폴백 데이터 사용"
+    timing_kws  = ", ".join(KEYWORD_TIERS["타이밍"]) or "없음"
 
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="font-family:Apple SD Gothic Neo,sans-serif;max-width:700px;margin:auto;padding:20px;color:#111;">
+<html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:760px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
 
-<h1 style="background:linear-gradient(135deg,#1E40AF,#065F46);color:#fff;padding:16px;border-radius:12px;">
-  💰 재테크 릴스 플래너 — {now_str}
-</h1>
+  <h2 style="color:#2D2D2D;border-bottom:3px solid #1E40AF;padding-bottom:10px;margin-bottom:20px;">
+    💰 재테크 릴스 플래너 — {today_kr}
+  </h2>
 
-<p style="color:#6B7280;font-size:13px;">
-  시트 데이터: {sheet_status} &nbsp;|&nbsp;
-  타이밍 키워드: {", ".join(KEYWORD_TIERS["타이밍"]) or "없음"}
-</p>
+  <div style="background:#F0F7FF;border-left:4px solid #1E40AF;padding:10px 16px;margin-bottom:20px;border-radius:4px;">
+    <p style="margin:0;font-size:14px;"><strong>데이터 상태:</strong> {data_status}</p>
+    <p style="margin:4px 0 0;font-size:13px;color:#555;"><strong>타이밍 키워드:</strong> {timing_kws}</p>
+  </div>
 
-<h2 style="border-bottom:2px solid #1E40AF;padding-bottom:6px;">📡 이번 주 트렌드</h2>
-{trend_html}
+  <div style="background:#F9FFF9;border:1px solid #D1FAE5;padding:12px 16px;margin-bottom:24px;border-radius:8px;">
+    <p style="margin:0 0 8px;font-size:13px;font-weight:bold;color:#065F46;">📋 슬롯 구성 (유입 2 : 전환 6 : 타이밍 2)</p>
+    {build_slot_badges(slots)}
+  </div>
 
-<h2 style="border-bottom:2px solid #065F46;padding-bottom:6px;margin-top:24px;">
-  💡 아이디어 슬롯 {len(ideas)}개
-</h2>
-{cards_html}
+  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #EBEBEB;padding-bottom:8px;margin-bottom:16px;">
+    📈 이번 주 트렌드
+  </h2>
+  <div style="margin-bottom:36px;">{build_trend_html(trends)}</div>
+
+  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #1E40AF;padding-bottom:8px;margin-bottom:16px;">
+    💡 릴스 아이디어 10개
+  </h2>
+  <div style="line-height:1.8;font-size:14px;margin-bottom:48px;">
+    {content_to_html(reels_output)}
+  </div>
+
+  <p style="color:#bbb;font-size:11px;margin-top:40px;text-align:right;">
+    자동 생성 — {now_str} | finance_reels_planner.py
+  </p>
 
 </body></html>"""
 
@@ -535,7 +718,17 @@ def send_gmail(subject: str, html_body: str) -> None:
 
 
 def main() -> None:
-    print("=== 재테크 릴스 플래너 시작 ===")
+    today_str  = datetime.now().strftime("%Y-%m-%d")
+    now        = datetime.now()
+    this_month = now.strftime("%Y-%m")
+    week_num   = now.isocalendar()[1]
+
+    print(f"\n{'='*55}")
+    print(f"  💰 재테크 릴스 플래너 시작 — {today_str} (#{week_num}주차)")
+    print(f"{'='*55}\n")
+
+    if not ANTHROPIC_API_KEY:
+        raise EnvironmentError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
 
     # 1. history 로드
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -553,81 +746,56 @@ def main() -> None:
     # 3. Claude 클라이언트
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # 4. 월간 업데이트 체크
-    this_month = datetime.now().strftime("%Y-%m")
+    # 4. 월간 키워드 트리 업데이트 (이번 달 아직 안 했으면)
     if history.get("last_tree_update_finance") != this_month:
-        print("  🌿 월간 키워드 트리 업데이트 중...")
+        print("🌿 [STEP 1] 월간 키워드 트리 업데이트 중...")
         history = monthly_keyword_tree_update_finance(history, client)
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
 
     # 5. 트렌드 수집 + 타이밍 키워드 추출
-    print("  📡 RSS 트렌드 수집 중...")
+    print("\n📡 [STEP 2] RSS 트렌드 수집 중...")
     trends = search_trends()
     extract_timing_keywords_finance(trends)
 
-    # 6. 시트 데이터 수집 (피드백용)
-    print("  📊 시트 데이터 수집 중...")
+    # 6. 시트 데이터 수집
+    print("\n📊 [STEP 3] Google Sheets 데이터 수집 중...")
     patterns, sheet_success = fetch_sheet_data()
 
     # 7. 주간 키워드 10개 선택
-    print("  🔑 키워드 슬롯 선택 중...")
+    print("\n🔑 [STEP 4] 키워드 슬롯 선택 중...")
     slots = select_weekly_keywords_finance(history, client)
 
-    # 8. 피드백 예시 + 히스토리 제목
-    feedback_parts = []
-    if patterns["good"]:
-        feedback_parts.append("잘된 제목:\n" + "\n".join(patterns["good"][:5]))
-    if patterns["bad"]:
-        feedback_parts.append("저조한 제목:\n" + "\n".join(patterns["bad"][:5]))
-    feedback_examples = "\n\n".join(feedback_parts) if feedback_parts else "피드백 데이터 없음"
+    # 8. 최근 제목 로드 (중복 방지)
+    recent_titles = load_recent_titles()
+    if recent_titles:
+        print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개 제목 로드")
 
-    history_titles: list[str] = []
-    for k, v in history.items():
-        if len(k) == 10 and k >= "2024-01-01" and isinstance(v, list):
-            history_titles.extend(v)
+    # 9. 아이디어 10개 생성 (Haiku 스트리밍, 단일 콜)
+    reels = generate_reels_finance(slots, patterns, trends, client, recent_titles)
 
-    # 9. 슬롯별 아이디어 생성 (Haiku)
-    print("  💡 아이디어 생성 중 (10개)...")
-    ideas: list[dict] = []
-    for i, slot in enumerate(slots, 1):
-        prompt = build_idea_prompt_finance(slot, feedback_examples, history_titles)
-        try:
-            msg = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=600,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            idea_text = msg.content[0].text.strip()
-            print(f"    [{i}/10] {slot['sub_keyword']} ✓")
-        except Exception as e:
-            idea_text = f"생성 실패: {e}"
-            print(f"    [{i}/10] {slot['sub_keyword']} ✗ {e}")
-        ideas.append({"slot": slot, "text": idea_text})
-
-        # 히스토리 제목 추적 (중복 방지용)
-        first_line = idea_text.split("\n")[0].replace("**아이디어 제목:**", "").strip()
-        today = datetime.now().strftime("%Y-%m-%d")
-        history.setdefault(today, []).append(first_line)
-
-    # 10. history 저장
+    # 10. 히스토리 저장 (제목 + 키워드 트리 상태)
+    save_titles_to_history(reels)
     history["keyword_tree_finance"] = {
-        k: {
-            "modifiers": v["modifiers"],
-            "angles":    v["angles"],
-            "used_subs": v["used_subs"],
-        }
+        k: {"modifiers": v["modifiers"], "angles": v["angles"], "used_subs": v["used_subs"]}
         for k, v in KEYWORD_TREE.items()
     }
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
     print(f"  💾 history 저장 완료: {HISTORY_FILE}")
 
-    # 11. 이메일 발송
-    now_str = datetime.now().strftime("%Y-%m-%d")
-    subject = f"[재테크 릴스] 주간 아이디어 {len(ideas)}개 — {now_str}"
-    html = build_email_html_finance(slots, ideas, trends, sheet_success)
-    send_gmail(subject, html)
+    # 11. 이메일 발송 (실패 시 파일 저장)
+    subject   = f"[재테크 릴스] 아이디어 10개 — {today_str}"
+    html_body = build_email_html_finance(slots, reels, trends, sheet_success)
+    try:
+        send_gmail(subject, html_body)
+    except Exception as e:
+        print(f"  ❌ Gmail 발송 실패: {e} → 파일 저장으로 대체")
+        save_fallback_finance(reels, today_str)
 
-    print("=== 완료 ===")
+    print(f"\n{'='*55}")
+    print("  ✅ 재테크 릴스 플래너 완료!")
+    print(f"{'='*55}\n")
 
 
 if __name__ == "__main__":
