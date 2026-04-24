@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env", override=True)
 
-COMMON_PREFIX = ["날짜", "폴더명", "페르소나", "욕구", "인지단계", "펀넬", "앵글", "기획법"]
+COMMON_PREFIX = ["날짜", "폴더명", "페르소나", "욕구", "기획법"]
 COMMON_SUFFIX = ["컨셉", "기대반응", "본문 상태", "PNG 폴더"]
 
 SCOPES = [

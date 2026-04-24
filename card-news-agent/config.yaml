@@ -3,59 +3,68 @@ service:
   desc: "브랜드 한 줄 설명"
   label: "채널명"
 
-# 기획법 정의
+# 기획법 정의 (노션 원본 기준)
 frameworks:
   HIRA:
     name: "HIRA"
-    structure: ["Hook", "Insight", "Reveal", "Action"]
-    desc: "훅으로 시작 → 인사이트 → 반전/공개 → 행동 유도"
-  HOS:
-    name: "HOS"
-    structure: ["Hook", "Offer", "Story"]
-    desc: "훅 → 제안 → 스토리로 설득"
-  PASO:
-    name: "PASO"
-    structure: ["Problem", "Agitation", "Solution", "Offer"]
-    desc: "문제 제기 → 감정 자극 → 해결책 → 제안"
+    structure: ["Hook", "Interest Loop", "Reveal", "Action"]
+    desc: "2026 인스타 알고리즘에 가장 잘 맞는 구조. 체류시간·저장·공유를 한 번에 잡는 메인 공식"
+    purpose: "체류시간 극대화 + 저장·공유 동시 유도"
+    best_for: "마케팅 / 브랜딩 / 교육 / 정보형"
   PAF:
     name: "PAF"
     structure: ["Problem", "Agitation", "Fix"]
-    desc: "문제 찌르고 → 더 불안하게 → 해결"
+    desc: "손해 회피 심리를 자극하는 구조. 댓글·공유 반응이 강하게 터짐"
+    purpose: "문제 인식 강화 + 행동 변화 유도"
+    best_for: "다이어트 / 헬스 / 자기계발"
+  MRC:
+    name: "MRC"
+    structure: ["Myth", "Reality", "Conclusion"]
+    desc: "상식을 깨는 반전 구조. 저장률이 유독 높게 나옴"
+    purpose: "인식 전환 + 전문가 포지셔닝"
+    best_for: "금융 / 투자 / 헬스 정보 / 마케팅 인사이트"
   BAD:
     name: "BAD"
     structure: ["Before", "After", "Difference"]
-    desc: "변화 강조형 — 이전/이후/차이"
-  LIST:
-    name: "LIST"
-    structure: ["숫자 리스트"]
-    desc: "숫자 리스트형 (3가지, 5단계 등)"
-  기본:
-    name: "기본"
-    structure: ["자유 구성"]
-    desc: "섹션타이틀 + 본문 자유 구성"
-
-# 드롭다운 옵션
-options:
-  인지단계:
-    - 인식
-    - 관심
-    - 고려
-    - 전환
-    - 충성
-  펀넬:
-    - ToFu
-    - MoFu
-    - BoFu
-    - 리텐션
-    - 바이럴
-  앵글:
-    - 공감
-    - 두려움
-    - 혜택
-    - 편의
-    - 사회적 증거
-    - 호기심
-    - 반전
+    desc: "변화 전후가 명확한 성과형 공식. 팔로우 전환에 특히 강함"
+    purpose: "신뢰 확보 + 팔로우 전환"
+    best_for: "마케팅 성과 / 다이어트 / 성과 기반 콘텐츠"
+  QQA:
+    name: "QQA"
+    structure: ["Question", "Question", "Answer"]
+    desc: "질문으로 스와이프를 끌어내는 구조. 체류시간이 유독 길게 나옴"
+    purpose: "궁금증 유발 + 넘김 유도"
+    best_for: "교육 / 지식 계정 / 마케팅·전략"
+  SCS:
+    name: "SCS"
+    structure: ["Situation", "Conflict", "Solution"]
+    desc: "스토리텔링 기반 공식. 감정 이입이 자연스럽게 일어남"
+    purpose: "신뢰 형성 + 브랜드 서사 구축"
+    best_for: "퍼스널 브랜딩 / 스타트업 / 창업"
+  LES:
+    name: "LES"
+    structure: ["List", "Explanation", "Summary"]
+    desc: "저장률이 가장 높게 나오는 실용 공식"
+    purpose: "정보 정리 + 체크리스트 제공"
+    best_for: "헬스 / 식단 / 업무·툴 정리"
+  FRF:
+    name: "FRF"
+    structure: ["Fact", "Reason", "Framework"]
+    desc: "실제 성과로 신뢰를 만드는 전문가 공식"
+    purpose: "전문성 증명 + 신뢰 확보"
+    best_for: "컨설팅 / 마케팅 전략 / 데이터 기반 계정"
+  EME:
+    name: "EME"
+    structure: ["Experience", "Meaning", "Expansion"]
+    desc: "팔로워를 팬으로 만드는 공식"
+    purpose: "공감 형성 + 팬화"
+    best_for: "퍼스널 브랜딩 / 코치 / 강사"
+  TWH:
+    name: "TWH"
+    structure: ["This", "Why", "How"]
+    desc: "짧고 강하게 핵심을 전달하는 공식"
+    purpose: "신규 유입 + 빠른 이해"
+    best_for: "정보 요약형 / 신규 계정 / 빠른 메시지 전달"
 
 channels:
   AI트렌드:
@@ -113,21 +122,6 @@ channels:
         desc: "본문, 60자 이내"
 
 thumbnail:
-  angles:
-    - name: 공감
-      desc: '"나도 그랬어요" — 독자 경험에 공감하며 시작'
-    - name: 두려움
-      desc: '"이렇게 안 하면 놓치게 됩니다" — 손실 회피 심리'
-    - name: 혜택
-      desc: '"이 방법을 쓰면 3배 빨라집니다" — 구체적 이익'
-    - name: 편의
-      desc: '"5분이면 충분합니다" — 쉽고 간단함 강조'
-    - name: 사회적 증거
-      desc: '"OO명이 이미 쓰고 있어요" — 신뢰와 레퍼런스'
-    - name: 호기심
-      desc: '"이걸 모르면 손해입니다" — 궁금증 유발'
-    - name: 반전
-      desc: '"사실은 반대입니다" — 기존 상식 뒤집기'
   headline_lines: 3
   chars_per_line_min: 7
   chars_per_line_max: 12

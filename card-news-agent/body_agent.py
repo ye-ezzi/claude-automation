@@ -1,8 +1,9 @@
 """
 카드뉴스 본문 자동 생성 — Claude API 사용
 
-기획법(HIRA/HOS/PASO/PAF/BAD/LIST/기본)에 따라
-Card02~04 섹션 내용과 Card05 CTA, 컨셉, 기대반응을 생성합니다.
+기획법(HIRA/PAF/MRC/BAD/QQA/SCS/LES/FRF/EME/TWH)에 따라
+Card02~05 섹션 내용과 Card06 CTA, 컨셉, 기대반응을 생성합니다.
+기획법이 비어있으면 페르소나+욕구를 분석해 자동 선택합니다.
 """
 
 import json
@@ -15,78 +16,149 @@ from dotenv import load_dotenv
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env", override=True)
 
-# 기획법별 카드 구조 설명
 FRAMEWORK_GUIDE = {
     "HIRA": {
-        "desc": "Hook → Insight → Reveal → Action",
+        "structure": "Hook → Interest Loop → Reveal → Action",
+        "purpose": "체류시간 극대화 + 저장·공유 동시 유도",
         "cards": {
-            "Card02": "Hook — 공감 또는 충격적 사실로 주의 잡기",
-            "Card03": "Insight — 핵심 인사이트/정보 전달",
-            "Card04": "Reveal — 반전 또는 새로운 시각 제시",
-            "Card05": "Action — 구체적 실천 방법 제안",
-        }
-    },
-    "HOS": {
-        "desc": "Hook → Offer → Story",
-        "cards": {
-            "Card02": "Hook — 강렬한 첫 질문 또는 공감 포인트",
-            "Card03": "Offer — 핵심 제안/솔루션",
-            "Card04": "Story — 실제 사례 또는 스토리로 설득",
-            "Card05": "Summary — 핵심 메시지 정리 및 행동 촉구",
-        }
-    },
-    "PASO": {
-        "desc": "Problem → Agitation → Solution → Offer",
-        "cards": {
-            "Card02": "Problem — 타겟이 겪는 구체적 문제",
-            "Card03": "Agitation — 문제를 더 와닿게 감정 자극",
-            "Card04": "Solution — 해결책 제시",
-            "Card05": "Offer — 구체적인 실천 제안",
+            "Card02": "Hook — 당연하다고 믿는 것을 하고 있는데 예상치 못한 문제가 생긴다는 훅",
+            "Card03": "Interest Loop — 왜 이 문제가 반복되는지 질문을 던지며 궁금증 유지",
+            "Card04": "Reveal — 진짜 원인은 기존에 생각하던 것이 아님을 밝힘",
+            "Card05": "Action — 구체적 실천 방법 + 저장 유도",
         }
     },
     "PAF": {
-        "desc": "Problem → Agitation → Fix",
+        "structure": "Problem → Agitation → Fix",
+        "purpose": "문제 인식 강화 + 행동 변화 유도",
         "cards": {
-            "Card02": "Problem — 문제 제기",
-            "Card03": "Agitation — 그대로 두면 어떻게 되는지 불안 자극",
-            "Card04": "Fix — 명확하고 간단한 해결법",
-            "Card05": "Result — 해결 후 기대되는 변화/결과",
+            "Card02": "Problem — 타겟이 겪는 구체적 문제 제기",
+            "Card03": "Agitation — 이 방식 계속 가면 생기는 구체적 손해, 불안 자극",
+            "Card04": "Fix — 잘못된 접근 방식 지적 + 새로운 기준 제시",
+            "Card05": "Result — 올바른 방법으로 얻을 수 있는 변화/결과",
+        }
+    },
+    "MRC": {
+        "structure": "Myth → Reality → Conclusion",
+        "purpose": "인식 전환 + 전문가 포지셔닝",
+        "cards": {
+            "Card02": "Myth — 대부분이 사실이라고 믿는 잘못된 상식",
+            "Card03": "Reality — 실제 데이터나 사례로 반전",
+            "Card04": "Conclusion — 새로운 프레임/기준 제시",
+            "Card05": "Action — 이 인식을 바탕으로 지금 할 수 있는 것",
         }
     },
     "BAD": {
-        "desc": "Before → After → Difference (변화 강조형)",
+        "structure": "Before → After → Difference",
+        "purpose": "신뢰 확보 + 팔로우 전환",
         "cards": {
-            "Card02": "Before — 변화 전의 상황/문제",
-            "Card03": "After — 변화 후의 모습/결과",
-            "Card04": "Difference — 무엇이 달라졌는지 핵심 차이",
-            "Card05": "Action — 독자가 지금 당장 할 수 있는 첫 번째 행동",
+            "Card02": "Before — 변화 전 반복되던 문제 상황",
+            "Card03": "After — 변화 후 눈에 보이는 결과",
+            "Card04": "Difference — 바뀐 것은 딱 하나, 결정적 차이",
+            "Card05": "Action — 독자가 지금 당장 시작할 수 있는 첫 번째 행동",
         }
     },
-    "LIST": {
-        "desc": "숫자 리스트형 (3가지, 5단계 등)",
+    "QQA": {
+        "structure": "Question → Question → Answer",
+        "purpose": "궁금증 유발 + 넘김 유도",
         "cards": {
-            "Card02": "리스트 항목 1~2 — 첫 번째, 두 번째 포인트",
-            "Card03": "리스트 항목 3~4 — 세 번째, 네 번째 포인트",
-            "Card04": "리스트 항목 5~6 — 다섯 번째, 여섯 번째 포인트",
-            "Card05": "정리 — 핵심 요약 및 독자 행동 유도",
+            "Card02": "Question 1 — 현상에 대한 첫 번째 질문으로 흥미 유발",
+            "Card03": "Question 2 — 더 깊은 질문으로 표면적 이유를 의심하게 만들기",
+            "Card04": "Answer — 이유는 단 하나, 핵심 원인 명확히 제시",
+            "Card05": "Application — 이 답을 바탕으로 독자가 적용할 수 있는 것",
         }
     },
-    "기본": {
-        "desc": "자유 구성",
+    "SCS": {
+        "structure": "Situation → Conflict → Solution",
+        "purpose": "신뢰 형성 + 브랜드 서사 구축",
         "cards": {
-            "Card02": "핵심 내용 1",
-            "Card03": "핵심 내용 2",
-            "Card04": "핵심 내용 3",
-            "Card05": "핵심 내용 4 + 정리",
+            "Card02": "Situation — 처음 무작정 시도했던 상황",
+            "Card03": "Conflict — 반복된 문제와 실패",
+            "Card04": "Solution — 의외의 원인 발견과 해결",
+            "Card05": "Lesson — 이 경험에서 얻은 핵심 인사이트",
+        }
+    },
+    "LES": {
+        "structure": "List → Explanation → Summary",
+        "purpose": "정보 정리 + 체크리스트 제공 (저장률 최고)",
+        "cards": {
+            "Card02": "List 항목 1~2 — 첫 번째, 두 번째 포인트 + 핵심 설명",
+            "Card03": "List 항목 3~4 — 세 번째, 네 번째 포인트 + 핵심 설명",
+            "Card04": "List 항목 5~6 — 다섯 번째, 여섯 번째 포인트 + 핵심 설명",
+            "Card05": "Summary — 이것만 지켜도 결과가 달라진다는 정리",
+        }
+    },
+    "FRF": {
+        "structure": "Fact → Reason → Framework",
+        "purpose": "전문성 증명 + 신뢰 확보",
+        "cards": {
+            "Card02": "Fact — 구체적인 수치나 성과",
+            "Card03": "Reason — 그 성과가 나온 구조적 원인",
+            "Card04": "Framework — 재현 가능한 3단계 또는 공식",
+            "Card05": "Application — 독자가 이 프레임워크를 적용하는 방법",
+        }
+    },
+    "EME": {
+        "structure": "Experience → Meaning → Expansion",
+        "purpose": "공감 형성 + 팬화",
+        "cards": {
+            "Card02": "Experience — 나도 겪었던 정체·실패 경험",
+            "Card03": "Meaning — 그때 깨달은 의외의 인사이트",
+            "Card04": "Expansion — 이 이야기가 독자에게 중요한 이유",
+            "Card05": "Action — 독자가 지금 바로 시작할 수 있는 것",
+        }
+    },
+    "TWH": {
+        "structure": "This → Why → How",
+        "purpose": "신규 유입 + 빠른 이해",
+        "cards": {
+            "Card02": "This — 핵심 주장 한 문장으로",
+            "Card03": "Why — 왜 이것이 중요한지 이유",
+            "Card04": "How — 구체적으로 어떻게 하는지",
+            "Card05": "Summary — 핵심 정리 + 저장 유도",
         }
     },
 }
 
+FRAMEWORK_LIST = "\n".join(
+    f"- {k}: {v['structure']} / 목적: {v['purpose']}"
+    for k, v in FRAMEWORK_GUIDE.items()
+)
+
+
+def select_framework(row: dict, channel_cfg: dict, client: anthropic.Anthropic) -> str:
+    """페르소나+욕구+폴더명 기반으로 최적 기획법 1개 자동 선택"""
+    prompt = f"""카드뉴스 기획법을 선택해주세요.
+
+## 콘텐츠 정보
+- 채널 타겟: {channel_cfg.get('target', '')}
+- 폴더명(주제): {row.get('폴더명', '')}
+- 페르소나: {row.get('페르소나', '')}
+- 욕구: {row.get('욕구', '')}
+
+## 선택 가능한 기획법
+{FRAMEWORK_LIST}
+
+## 선택 기준
+1. 독자의 욕구 유형 파악 (불안/해결 → PAF/MRC, 정보/학습 → LES/TWH, 변화/성과 → BAD/FRF, 공감/서사 → SCS/EME, 호기심 → QQA/HIRA)
+2. 페르소나의 현재 상태 파악 (문제 인식 전 → HIRA/TWH, 탐색 중 → MRC/LES, 설득 필요 → PAF/BAD)
+3. 채널 타겟과 톤에 맞는 구조 선택
+
+반드시 위 기획법 중 정확히 1개의 이름만 출력하세요. 설명 없이 이름만:"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=10,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    selected = message.content[0].text.strip().upper()
+    if selected not in FRAMEWORK_GUIDE:
+        return "HIRA"
+    return selected
+
 
 def build_prompt(row: dict, channel_cfg: dict) -> str:
-    """생성 프롬프트 작성"""
-    framework = row.get("기획법", "기본")
-    fw = FRAMEWORK_GUIDE.get(framework, FRAMEWORK_GUIDE["기본"])
+    framework = row.get("기획법", "HIRA")
+    fw = FRAMEWORK_GUIDE.get(framework, FRAMEWORK_GUIDE["HIRA"])
 
     body_fields = channel_cfg.get("body_fields", [])
     field_names = [f["name"] for f in body_fields]
@@ -95,7 +167,6 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
     fields_guide = "\n".join(
         f"  - {name}: {field_descs[name]}" for name in field_names
     )
-
     card_roles = "\n".join(
         f"  - {card}: {role}" for card, role in fw["cards"].items()
     )
@@ -107,13 +178,11 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
 - 톤앤매너: {channel_cfg.get('tone', '')}
 - 페르소나: {row.get('페르소나', '')}
 - 욕구: {row.get('욕구', '')}
-- 인지단계: {row.get('인지단계', '')}
-- 펀넬: {row.get('펀넬', '')}
-- 앵글: {row.get('앵글', '')}
-- 기획법: {framework} ({fw['desc']})
+- 기획법: {framework} ({fw['structure']})
+- 기획법 목적: {fw['purpose']}
 - Card01 헤드라인: {row.get('Card01 헤드라인', '')}
 
-## 기획법 구조 ({framework})
+## 기획법 구조
 {card_roles}
 
 ## 각 카드의 필드
@@ -156,10 +225,7 @@ def generate_card01(row: dict, channel_cfg: dict, client: anthropic.Anthropic) -
 - 폴더명(주제): {row.get('폴더명', '')}
 - 페르소나: {row.get('페르소나', '')}
 - 욕구: {row.get('욕구', '')}
-- 인지단계: {row.get('인지단계', '')}
-- 펀넬: {row.get('펀넬', '')}
-- 앵글: {row.get('앵글', '')}
-- 기획법: {row.get('기획구조', row.get('기획법', '기본'))}
+- 기획법: {row.get('기획법', '')}
 
 ## 생성할 필드
 {fields_guide}
@@ -192,7 +258,13 @@ def generate(row: dict, channel_cfg: dict) -> dict:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Card01 헤드라인 비어있으면 먼저 생성
+    # 기획법 자동 선택 (비어있을 때)
+    if not row.get("기획법", "").strip():
+        print(f"  🔍 기획법 자동 선택 중...")
+        row["기획법"] = select_framework(row, channel_cfg, client)
+        print(f"  ✅ 기획법 선택: {row['기획법']}")
+
+    # Card01 비어있으면 먼저 생성
     card01_fields = channel_cfg.get("card01_fields", [])
     for f in card01_fields:
         key = f"Card01 {f['name']}"
@@ -204,8 +276,7 @@ def generate(row: dict, channel_cfg: dict) -> dict:
             break
 
     prompt = build_prompt(row, channel_cfg)
-
-    print(f"  🤖 Claude 생성 중... (기획법: {row.get('기획구조', row.get('기획법', '기본'))})")
+    print(f"  🤖 Claude 생성 중... (기획법: {row.get('기획법', '')})")
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
@@ -214,10 +285,7 @@ def generate(row: dict, channel_cfg: dict) -> dict:
     )
 
     raw = message.content[0].text.strip()
-
-    # JSON 파싱
     try:
-        # ```json ... ``` 블록 제거
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -228,15 +296,18 @@ def generate(row: dict, channel_cfg: dict) -> dict:
         print(f"  원본 응답: {raw[:200]}")
         return {}
 
-    # 플랫 구조로 변환 (Card02 섹션타이틀, Card02 섹션텍스트, ...)
     result = {}
 
-    # Card01 (헤드라인, 컬러칩 등) — generate_card01()로 생성된 값 포함
+    # 자동 선택된 기획법 저장
+    result["기획법"] = row.get("기획법", "")
+
+    # Card01
     for f in channel_cfg.get("card01_fields", []):
         key = f"Card01 {f['name']}"
         if row.get(key, "").strip():
             result[key] = row[key]
 
+    # Card02~05
     for card_key in ["Card02", "Card03", "Card04", "Card05"]:
         if card_key in data:
             for field, value in data[card_key].items():
