@@ -3,8 +3,8 @@ AI/콘텐츠 릴스 + 피드 플래너 — 매일 오전 9시 자동 실행
 =====================================================
 STEP 1. Google Sheets에서 AI/디자인 콘텐츠 패턴 수집
 STEP 2. 오늘의 AI툴 / 디자인 / 크리에이터 트렌드 웹 서치
-STEP 3. Claude API로 릴스 아이디어 20개 생성
-STEP 4. Claude API로 피드(카드뉴스) 아이디어 20개 생성
+STEP 3. Claude API로 릴스 아이디어 10개 생성
+STEP 4. Claude API로 피드(카드뉴스) 아이디어 10개 생성
 STEP 5. Gmail로 자동 발송 (실패 시 파일 저장)
 
 필요 패키지:
@@ -463,16 +463,16 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 ## 오늘의 핵심 소재 키워드
 - 루트 키워드: **{root_kw}**
 - 서브 키워드: **{sub_kw}**
-→ 20개 아이디어 모두 이 키워드 맥락에서 출발하세요. 툴명·주제어를 구체적으로 명시하고 막연한 "AI 활용법" 수준의 제목은 금지합니다.
+→ 10개 아이디어 모두 이 키워드 맥락에서 출발하세요. 툴명·주제어를 구체적으로 명시하고 막연한 "AI 활용법" 수준의 제목은 금지합니다.
 """
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 10개를 생성해주세요.
 
 {ACCOUNT_DNA}
 {keyword_block}
 ## 오늘의 테마: {theme['name']}
 {theme['instruction']}
-→ 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+→ 오늘 10개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
@@ -494,14 +494,14 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
-## 아이디어 20개 생성 규칙
-- 최소 6개: 특정 AI 툴/워크플로우 (GPT, Gemini, Canva AI, Midjourney, Firefly 등 툴명 반드시 명시)
-- 최소 4개: AI × 디자인 (이미지 생성, 디자인 자동화, 브랜드킷, 목업 생성 등)
-- 최소 4개: 프리랜서 실전 (가격 책정, 클라이언트 관리, 포트폴리오, 제안서 작성)
-- 최소 3개: 콘텐츠 제작 / 인스타그램 성장 팁
-- 나머지 3개: 오늘 트렌드 반응형
+## 아이디어 10개 생성 규칙
+- 최소 3개: 특정 AI 툴/워크플로우 (GPT, Gemini, Canva AI, Midjourney, Firefly 등 툴명 반드시 명시)
+- 최소 2개: AI × 디자인 (이미지 생성, 디자인 자동화, 브랜드킷, 목업 생성 등)
+- 최소 2개: 프리랜서 실전 (가격 책정, 클라이언트 관리, 포트폴리오, 제안서 작성)
+- 최소 2개: 콘텐츠 제작 / 인스타그램 성장 팁
+- 나머지 1개: 오늘 트렌드 반응형
 
-## 출력 형식 (정확히 이 형식, 20개 모두)
+## 출력 형식 (정확히 이 형식, 10개 모두)
 
 ---
 
@@ -524,7 +524,7 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 
 def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
                    recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
-    print("\n🤖 [STEP 3] 릴스 아이디어 20개 생성 중...")
+    print("\n🤖 [STEP 3] 릴스 아이디어 10개 생성 중...")
     prompt = build_reels_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
 
     text = ""
@@ -578,16 +578,16 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 ## 오늘의 핵심 소재 키워드
 - 루트 키워드: **{root_kw}**
 - 서브 키워드: **{sub_kw}**
-→ 20개 아이디어 모두 이 키워드 맥락에서 출발하세요. 막연한 "AI 활용법" 수준의 제목은 금지합니다.
+→ 10개 아이디어 모두 이 키워드 맥락에서 출발하세요. 막연한 "AI 활용법" 수준의 제목은 금지합니다.
 """
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 20개를 생성해주세요.
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 10개를 생성해주세요.
 
 {ACCOUNT_DNA}
 {keyword_block}
 ## 오늘의 테마: {theme['name']}
 {theme['instruction']}
-→ 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+→ 오늘 10개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
@@ -595,17 +595,17 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
-## 피드 아이디어 20개 생성 규칙
-- 최소 6개: 특정 AI 툴/워크플로우 (툴명 반드시 명시)
-- 최소 4개: AI × 디자인 (이미지 생성, 디자인 자동화 등)
-- 최소 4개: 프리랜서 실전 팁 (저장하고 싶은 정보성)
-- 최소 3개: 콘텐츠 제작 / 인스타그램 성장
-- 나머지 3개: 오늘 트렌드 반응형
+## 피드 아이디어 10개 생성 규칙
+- 최소 3개: 특정 AI 툴/워크플로우 (툴명 반드시 명시)
+- 최소 2개: AI × 디자인 (이미지 생성, 디자인 자동화 등)
+- 최소 2개: 프리랜서 실전 팁 (저장하고 싶은 정보성)
+- 최소 2개: 콘텐츠 제작 / 인스타그램 성장
+- 나머지 1개: 오늘 트렌드 반응형
 - 체크리스트·비교표·단계별 가이드 형식 선호
 - 커버 카드는 위 시트 썸네일 패턴의 키워드·말투를 참고해서 작성
-- 댓글 키워드 DM 전략 20개 중 최소 5개 적용
+- 댓글 키워드 DM 전략 10개 중 최소 3개 적용
 
-## 출력 형식 (정확히 이 형식, 20개 모두)
+## 출력 형식 (정확히 이 형식, 10개 모두)
 
 ---
 
@@ -626,14 +626,14 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 
 **중요 원칙:**
 - 커버는 숫자 또는 질문으로 반드시 시작
-- 댓글 키워드 CTA: "댓글에 'XX' 남겨주시면 자료 보내드립니다" 패턴 20개 중 최소 5개 적용
+- 댓글 키워드 CTA: "댓글에 'XX' 남겨주시면 자료 보내드립니다" 패턴 10개 중 최소 3개 적용
 - 모든 아이디어는 스마트폰 + 무료 툴(Canva 등)로 제작 가능해야 함
 - 저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호"""
 
 
 def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
                   recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
-    print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 20개 생성 중... (Haiku)")
+    print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 10개 생성 중... (Haiku)")
     prompt = build_feed_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
 
     text = ""
@@ -691,7 +691,7 @@ def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str) -
 <html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:760px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
 
   <h2 style="color:#2D2D2D;border-bottom:3px solid #4A90D9;padding-bottom:10px;margin-bottom:20px;">
-    🎬 AI/콘텐츠 — 릴스 20 + 피드 20 — {today_kr}
+    🎬 AI/콘텐츠 — 릴스 10 + 피드 10 — {today_kr}
   </h2>
 
   <div style="background:#F0F7FF;border-left:4px solid #4A90D9;padding:10px 16px;margin-bottom:28px;border-radius:4px;">
@@ -704,14 +704,14 @@ def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str) -
   <div style="margin-bottom:36px;">{build_trend_html(trends)}</div>
 
   <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #4A90D9;padding-bottom:8px;margin-bottom:16px;">
-    🎬 릴스 아이디어 20개
+    🎬 릴스 아이디어 10개
   </h2>
   <div style="line-height:1.8;font-size:14px;margin-bottom:48px;">
     {content_to_html(reels, "🎬", "아이디어")}
   </div>
 
   <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #4A90D9;padding-bottom:8px;margin-bottom:16px;">
-    🗂️ 피드(카드뉴스) 아이디어 20개
+    🗂️ 피드(카드뉴스) 아이디어 10개
   </h2>
   <div style="line-height:1.8;font-size:14px;">
     {content_to_html(feed, "🗂️", "피드 아이디어")}

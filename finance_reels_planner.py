@@ -450,10 +450,10 @@ def load_recent_titles(days: int = 21) -> list[str]:
         return []
 
 
-def save_titles_to_history(reels_output: str) -> None:
+def save_titles_to_history(reels_output: str, feed_output: str = "") -> None:
     """생성된 아이디어 제목을 history 파일에 저장."""
     today = datetime.now().strftime("%Y-%m-%d")
-    titles = re.findall(r"\*\*아이디어 제목:\*\*\s*(.+)", reels_output)
+    titles = re.findall(r"\*\*아이디어 제목:\*\*\s*(.+)", reels_output + feed_output)
     if not titles:
         return
     history = {}
@@ -472,13 +472,15 @@ def save_titles_to_history(reels_output: str) -> None:
     print(f"  📝 히스토리 저장: {len(titles)}개 제목 → {HISTORY_FILE}")
 
 
-def save_fallback_finance(reels_output: str, today_str: str) -> None:
+def save_fallback_finance(reels_output: str, feed_output: str, today_str: str) -> None:
     """이메일 발송 실패 시 파일로 저장."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, f"reels-finance-{today_str}.md")
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"# 재테크 릴스 — {today_str}\n\n")
+        f.write(f"# 재테크 릴스 — {today_str}\n\n## 릴스 아이디어 10개\n\n")
         f.write(reels_output)
+        f.write("\n\n## 피드(카드뉴스) 아이디어 10개\n\n")
+        f.write(feed_output)
     print(f"  💾 폴백 저장 완료: {path}")
 
 
@@ -605,7 +607,113 @@ def generate_reels_finance(
             text += chunk
             print(chunk, end="", flush=True)
 
-    print("\n  ✅ 아이디어 생성 완료")
+    print("\n  ✅ 릴스 아이디어 생성 완료")
+    return text
+
+
+def build_feed_prompt_finance(
+    slots: list[dict],
+    patterns: dict,
+    trends: dict,
+    recent_titles: list[str],
+) -> str:
+    today = datetime.now().strftime("%Y년 %m월 %d일")
+    week_num = datetime.now().isocalendar()[1]
+
+    thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:6]
+    goods      = patterns.get("good",  [])[:6]
+    bads       = patterns.get("bad",   [])[:6]
+
+    trend_lines = []
+    for cat, items in trends.items():
+        trend_lines.append(f"\n**{cat}:**")
+        for item in items[:3]:
+            trend_lines.append(f"  - {item['title']}: {item.get('snippet','')[:100]}")
+
+    avoid_block = (
+        "\n".join(f"- {t}" for t in recent_titles[:40])
+        if recent_titles else "- (첫 실행 — 제한 없음)"
+    )
+
+    feedback_block = ""
+    if goods or bads:
+        feedback_block = "\n## 과거 콘텐츠 피드백\n"
+        if goods:
+            feedback_block += "**잘 된 점:**\n" + "\n".join(f"- {g}" for g in goods) + "\n"
+        if bads:
+            feedback_block += "**아쉬운 점 (반복 금지):**\n" + "\n".join(f"- {b}" for b in bads) + "\n"
+
+    slot_lines = []
+    for i, s in enumerate(slots, 1):
+        slot_lines.append(
+            f"#{i} | 루트: {s['root_keyword']} | 서브: {s['sub_keyword']} | tier: {s['tier']} | 엔진: {s['engine']}"
+        )
+
+    return f"""당신은 재테크 인스타그램 채널 콘텐츠 디렉터입니다.
+오늘({today}, {week_num}주차) 아래 10개 슬롯에 맞춰 피드(카드뉴스/캐러셀) 아이디어를 각 1개씩 생성하세요.
+
+## 채널 포지셔닝
+"바쁜 직장인도 월급날 30분이면 챙기는 재테크 루틴"
+저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호
+
+## 10개 슬롯
+{chr(10).join(slot_lines)}
+
+## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
+{avoid_block}
+{feedback_block}
+## 썸네일 패턴
+{chr(10).join(f"- {t}" for t in thumbnails)}
+
+## 오늘의 트렌드
+{"".join(trend_lines)}
+
+## 출력 형식 (정확히 이 형식, 10개 모두)
+
+---
+
+**피드 아이디어 #N**
+
+**아이디어 제목:** [제목 — 서브 키워드를 앞 15자 안에 반드시 포함]
+**카드 구성:** [슬라이드 수 — 최대 10장]
+**커버 카드 카피:** [숫자 또는 질문으로 시작]
+**슬라이드별 내용:**
+  - 1장: [커버 훅]
+  - 2장: [핵심 내용 1]
+  - 3장: [핵심 내용 2]
+  - 마지막 장: [정리 + CTA]
+**디자인 방향:** [배경색 톤, 핵심 시각 요소 — 1줄]
+**캡션 첫 줄:** [검색 유입 + 저장 유도. 댓글 키워드 CTA 적용]
+
+---
+
+**중요 원칙:**
+- 커버는 숫자 또는 질문으로 반드시 시작
+- 댓글 CTA: "댓글에 'XX' 남겨주시면 자료 보내드립니다" 패턴 10개 중 최소 4개 적용
+- 모든 아이디어는 스마트폰 + Canva 무료 버전으로 제작 가능해야 함"""
+
+
+def generate_feed_finance(
+    slots: list[dict],
+    patterns: dict,
+    trends: dict,
+    client,
+    recent_titles: list[str],
+) -> str:
+    print("\n🤖 [STEP 5] 재테크 피드 아이디어 10개 생성 중... (Haiku 스트리밍)")
+    prompt = build_feed_prompt_finance(slots, patterns, trends, recent_titles)
+
+    text = ""
+    with client.messages.stream(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=8000,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for chunk in stream.text_stream:
+            text += chunk
+            print(chunk, end="", flush=True)
+
+    print("\n  ✅ 피드 아이디어 생성 완료")
     return text
 
 
@@ -658,6 +766,7 @@ def build_slot_badges(slots: list[dict]) -> str:
 def build_email_html_finance(
     slots: list[dict],
     reels_output: str,
+    feed_output: str,
     trends: dict,
     sheet_success: bool,
 ) -> str:
@@ -670,7 +779,7 @@ def build_email_html_finance(
 <html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:760px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
 
   <h2 style="color:#2D2D2D;border-bottom:3px solid #1E40AF;padding-bottom:10px;margin-bottom:20px;">
-    💰 재테크 릴스 플래너 — {today_kr}
+    💰 재테크 — 릴스 10 + 피드 10 — {today_kr}
   </h2>
 
   <div style="background:#F0F7FF;border-left:4px solid #1E40AF;padding:10px 16px;margin-bottom:20px;border-radius:4px;">
@@ -689,10 +798,17 @@ def build_email_html_finance(
   <div style="margin-bottom:36px;">{build_trend_html(trends)}</div>
 
   <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #1E40AF;padding-bottom:8px;margin-bottom:16px;">
-    💡 릴스 아이디어 10개
+    🎬 릴스 아이디어 10개
   </h2>
   <div style="line-height:1.8;font-size:14px;margin-bottom:48px;">
     {content_to_html(reels_output)}
+  </div>
+
+  <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #1E40AF;padding-bottom:8px;margin-bottom:16px;">
+    🗂️ 피드(카드뉴스) 아이디어 10개
+  </h2>
+  <div style="line-height:1.8;font-size:14px;margin-bottom:48px;">
+    {content_to_html(feed_output)}
   </div>
 
   <p style="color:#bbb;font-size:11px;margin-top:40px;text-align:right;">
@@ -771,11 +887,14 @@ def main() -> None:
     if recent_titles:
         print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개 제목 로드")
 
-    # 9. 아이디어 10개 생성 (Haiku 스트리밍, 단일 콜)
+    # 9. 릴스 10개 생성 (Haiku 스트리밍)
     reels = generate_reels_finance(slots, patterns, trends, client, recent_titles)
 
-    # 10. 히스토리 저장 (제목 + 키워드 트리 상태)
-    save_titles_to_history(reels)
+    # 10. 피드 10개 생성 (Haiku 스트리밍)
+    feed = generate_feed_finance(slots, patterns, trends, client, recent_titles)
+
+    # 11. 히스토리 저장 (제목 + 키워드 트리 상태)
+    save_titles_to_history(reels, feed)
     history["keyword_tree_finance"] = {
         k: {"modifiers": v["modifiers"], "angles": v["angles"], "used_subs": v["used_subs"]}
         for k, v in KEYWORD_TREE.items()
@@ -784,14 +903,14 @@ def main() -> None:
         json.dump(history, f, ensure_ascii=False, indent=2)
     print(f"  💾 history 저장 완료: {HISTORY_FILE}")
 
-    # 11. 이메일 발송 (실패 시 파일 저장)
-    subject   = f"[재테크 릴스] 아이디어 10개 — {today_str}"
-    html_body = build_email_html_finance(slots, reels, trends, sheet_success)
+    # 12. 이메일 발송 (실패 시 파일 저장)
+    subject   = f"[재테크 릴스] 릴스 10 + 피드 10 — {today_str}"
+    html_body = build_email_html_finance(slots, reels, feed, trends, sheet_success)
     try:
         send_gmail(subject, html_body)
     except Exception as e:
         print(f"  ❌ Gmail 발송 실패: {e} → 파일 저장으로 대체")
-        save_fallback_finance(reels, today_str)
+        save_fallback_finance(reels, feed, today_str)
 
     print(f"\n{'='*55}")
     print("  ✅ 재테크 릴스 플래너 완료!")
