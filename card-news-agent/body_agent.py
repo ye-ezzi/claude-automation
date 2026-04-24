@@ -1,7 +1,7 @@
 """
 카드뉴스 본문 자동 생성 — Claude API 사용
 
-기획법(HIRA/PAF/MRC/BAD/QQA/SCS/LES/FRF/EME/TWH)에 따라
+기획법(HIRA/PAF/MRC/BAD/QQA/SCS/LES/FRF/EME/TWH/HOS/PASO)에 따라
 Card02~05 섹션 내용과 Card06 CTA, 컨셉, 기대반응을 생성합니다.
 기획법이 비어있으면 페르소나+욕구를 분석해 자동 선택합니다.
 """
@@ -115,6 +115,26 @@ FRAMEWORK_GUIDE = {
             "Card03": "Why — 왜 이것이 중요한지 이유",
             "Card04": "How — 구체적으로 어떻게 하는지",
             "Card05": "Summary — 핵심 정리 + 저장 유도",
+        }
+    },
+    "HOS": {
+        "structure": "Hook → Offer → Solution",
+        "purpose": "전환율 극대화 + 구매/신청 유도",
+        "cards": {
+            "Card02": "Hook — 강렬한 훅으로 관심 잡기 (문제 또는 욕구 자극)",
+            "Card03": "Offer — 핵심 제안/가치 먼저 제시 (이걸 얻을 수 있다)",
+            "Card04": "Solution — 어떻게 가능한지 구체적 솔루션",
+            "Card05": "Close — 신뢰 강화 + 행동 유도",
+        }
+    },
+    "PASO": {
+        "structure": "Problem → Agitate → Solution → Offer",
+        "purpose": "전환율 높은 설득 구조",
+        "cards": {
+            "Card02": "Problem — 타겟이 겪는 구체적 문제",
+            "Card03": "Agitate — 그 문제를 그대로 두면 생기는 더 큰 손해/불안 자극",
+            "Card04": "Solution — 문제를 해결하는 명확한 방법 제시",
+            "Card05": "Offer — 지금 바로 실천할 수 있는 구체적 제안",
         }
     },
 }

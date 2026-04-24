@@ -65,6 +65,18 @@ frameworks:
     desc: "짧고 강하게 핵심을 전달하는 공식"
     purpose: "신규 유입 + 빠른 이해"
     best_for: "정보 요약형 / 신규 계정 / 빠른 메시지 전달"
+  HOS:
+    name: "HOS"
+    structure: ["Hook", "Offer", "Solution"]
+    desc: "판매형 구조. 제안을 먼저 던지고 솔루션으로 설득"
+    purpose: "전환율 극대화 + 구매/신청 유도"
+    best_for: "제품/서비스 소개 / 판매형 콘텐츠"
+  PASO:
+    name: "PASO"
+    structure: ["Problem", "Agitate", "Solution", "Offer"]
+    desc: "문제를 자극하고 해결책과 제안으로 전환시키는 구조"
+    purpose: "전환율 높은 설득 구조"
+    best_for: "서비스 전환 / 구매 유도 / 강의 홍보"
 
 channels:
   AI트렌드:
