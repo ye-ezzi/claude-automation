@@ -77,6 +77,49 @@ ACCOUNT_DNA = """## 계정 DNA
 - **훅 스타일:** 팁 선행형, 호기심 유발형, 공감형 — 항상 따뜻하고 직접적
 - **피해야 할 것:** 이론적인 내용, 비싼 장비/팀이 필요한 아이디어, 실행 불가능한 막연한 조언"""
 
+KEYWORD_TREE = [
+    {
+        "root": "AI 영상 만들기",
+        "tier": 1,
+        "engine_fit": ["Runway", "Pika", "Kling", "Sora"],
+        "modifiers": ["초보자를 위한", "무료로", "5분 만에", "스마트폰으로", "자동으로"],
+        "angles":    ["튜토리얼", "전후 비교", "실제 사례", "실수 모음", "도구 추천"],
+        "used_subs": [],
+    },
+    {
+        "root": "AI 부업",
+        "tier": 1,
+        "engine_fit": ["ChatGPT", "Claude", "Midjourney", "Canva AI"],
+        "modifiers": ["월 100만원", "직장인이", "퇴근 후 2시간", "플랫폼 없이", "자동화로"],
+        "angles":    ["수익 인증", "시작 방법", "실패 이유", "도구 세팅", "클라이언트 찾기"],
+        "used_subs": [],
+    },
+    {
+        "root": "AI 프롬프트 작성법",
+        "tier": 2,
+        "engine_fit": ["ChatGPT", "Claude", "Gemini", "Midjourney"],
+        "modifiers": ["고퀄리티", "바로 복붙", "업무용", "이미지 생성", "한국어로"],
+        "angles":    ["공식 공개", "Before/After", "나쁜 예시", "분야별 모음", "단계별 작성"],
+        "used_subs": [],
+    },
+    {
+        "root": "AI 크리에이터",
+        "tier": 1,
+        "engine_fit": ["ChatGPT", "Canva AI", "Notion AI", "ElevenLabs"],
+        "modifiers": ["인스타 성장", "유튜브 자동화", "콘텐츠 대량생산", "브랜딩", "팔로워 늘리는"],
+        "angles":    ["워크플로우 공개", "툴 세팅", "수익 구조", "실수 피하기", "케이스 스터디"],
+        "used_subs": [],
+    },
+    {
+        "root": "미드저니 사용법",
+        "tier": 2,
+        "engine_fit": ["Midjourney"],
+        "modifiers": ["처음 쓰는", "고퀄리티", "상업용", "캐릭터 만들기", "브랜드 이미지"],
+        "angles":    ["프롬프트 공개", "버전 비교", "스타일 모음", "실전 예시", "오류 해결"],
+        "used_subs": [],
+    },
+]
+
 
 # ══════════════════════════════════════════
 # STEP 1 — Google Sheets 데이터 수집
@@ -216,6 +259,105 @@ def search_trends():
 
 
 # ══════════════════════════════════════════
+# 키워드 트리 — 소재 구체화
+# ══════════════════════════════════════════
+
+def get_sub_keyword(root_entry: dict) -> str:
+    """modifier × angle 조합에서 미사용 서브 키워드 선택, 소진 시 자동 리셋"""
+    combos = [f"{m} {a}" for m in root_entry["modifiers"] for a in root_entry["angles"]]
+    unused = [c for c in combos if c not in root_entry["used_subs"]]
+    if not unused:
+        root_entry["used_subs"] = []
+        unused = combos
+    chosen = unused[0]
+    root_entry["used_subs"].append(chosen)
+    return chosen
+
+
+def refine_sub_keyword(raw: str, client: anthropic.Anthropic) -> str:
+    """Haiku로 서브 키워드를 자연스러운 한국어 검색어로 다듬기"""
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=50,
+            messages=[{"role": "user", "content":
+                f"다음 키워드 조합을 인스타그램 검색에 최적화된 자연스러운 한국어 키워드 한 줄로 다듬어줘. "
+                f"설명 없이 키워드만 출력:\n{raw}"}],
+        )
+        return msg.content[0].text.strip()
+    except Exception:
+        return raw
+
+
+def monthly_keyword_tree_update(history: dict, client: anthropic.Anthropic) -> dict:
+    """매월 1회: 시트 데이터 기반으로 KEYWORD_TREE의 modifiers/angles 업데이트"""
+    print("\n🔄 [KEYWORD] 월간 키워드 트리 업데이트 중...")
+    try:
+        resp = requests.get(SHEETS_URL, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", [])
+
+        last_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        last_month_rows = [
+            r for r in results
+            if str(r.get("날짜", "")).startswith(last_month)
+            and ("AI" in str(r.get("분야", "")) or "디자인" in str(r.get("분야", "")))
+        ]
+        content_summary = "\n".join(
+            f"- {r.get('썸네일 문구', '')} / {r.get('분야', '')}"
+            for r in last_month_rows[:30] if r.get("썸네일 문구")
+        ) or "데이터 없음"
+
+        for entry in KEYWORD_TREE:
+            try:
+                msg = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=200,
+                    messages=[{"role": "user", "content":
+                        f"루트 키워드 '{entry['root']}'의 인스타그램 콘텐츠 소재를 다양화하려 합니다.\n"
+                        f"지난달 실제 게시된 콘텐츠:\n{content_summary}\n\n"
+                        f"위 데이터를 참고해 새로운 modifiers 3개와 angles 3개를 각각 JSON 배열로만 출력하세요.\n"
+                        f"형식: {{\"modifiers\": [...], \"angles\": [...]}}"}],
+                )
+                import json as _json
+                result = _json.loads(msg.content[0].text.strip())
+                new_mods = result.get("modifiers", [])[:3]
+                new_angs = result.get("angles", [])[:3]
+                if new_mods:
+                    entry["modifiers"] = (entry["modifiers"] + new_mods)[-5:]
+                if new_angs:
+                    entry["angles"] = (entry["angles"] + new_angs)[-5:]
+                entry["used_subs"] = []
+                print(f"  → '{entry['root']}' 업데이트 완료")
+            except Exception as e:
+                print(f"  ⚠️  '{entry['root']}' 업데이트 실패: {e}")
+
+    except Exception as e:
+        print(f"  ⚠️  시트 접근 실패 ({e}) → 키워드 트리 업데이트 건너뜀")
+
+    history["keyword_tree"] = [
+        {"root": e["root"], "modifiers": e["modifiers"],
+         "angles": e["angles"], "used_subs": e["used_subs"]}
+        for e in KEYWORD_TREE
+    ]
+    history["last_tree_update"] = datetime.now().strftime("%Y-%m")
+    return history
+
+
+def load_keyword_tree_from_history(history: dict):
+    """히스토리에 저장된 키워드 트리를 KEYWORD_TREE에 복원"""
+    saved = history.get("keyword_tree", [])
+    for saved_entry in saved:
+        for entry in KEYWORD_TREE:
+            if entry["root"] == saved_entry["root"]:
+                entry["modifiers"] = saved_entry.get("modifiers", entry["modifiers"])
+                entry["angles"]    = saved_entry.get("angles",    entry["angles"])
+                entry["used_subs"] = saved_entry.get("used_subs", [])
+                break
+
+
+# ══════════════════════════════════════════
 # 다양성 엔진 — 요일 테마 + 히스토리 회피
 # ══════════════════════════════════════════
 
@@ -243,7 +385,7 @@ def load_recent_titles(days: int = 21) -> list:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         recent = []
         for date, titles in history.items():
-            if date >= cutoff:
+            if len(date) == 10 and date >= cutoff and isinstance(titles, list):
                 recent.extend(titles)
         return recent
     except Exception:
@@ -277,7 +419,8 @@ def save_titles_to_history(reels_output: str, feed_output: str):
 # STEP 3 — 릴스 아이디어 20개 생성
 # ══════════════════════════════════════════
 
-def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list) -> str:
+def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list,
+                       root_kw: str = "", sub_kw: str = "") -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
 
     thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:8]
@@ -308,10 +451,19 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
             feedback_block += "**아쉬운 점 (이 실수 반복 금지):**\n"
             feedback_block += "\n".join(f"- {b}" for b in bads) + "\n"
 
+    keyword_block = ""
+    if root_kw:
+        keyword_block = f"""
+## 오늘의 핵심 소재 키워드
+- 루트 키워드: **{root_kw}**
+- 서브 키워드: **{sub_kw}**
+→ 20개 아이디어 모두 이 키워드 맥락에서 출발하세요. 툴명·주제어를 구체적으로 명시하고 막연한 "AI 활용법" 수준의 제목은 금지합니다.
+"""
+
     return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 20개를 생성해주세요.
 
 {ACCOUNT_DNA}
-
+{keyword_block}
 ## 오늘의 테마: {theme['name']}
 {theme['instruction']}
 → 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
@@ -364,9 +516,10 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 - 캡션 오프닝은 공감 또는 감탄 → 핵심 팁 → CTA 순서"""
 
 
-def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict, recent_titles: list) -> str:
+def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
+                   recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
     print("\n🤖 [STEP 3] 릴스 아이디어 20개 생성 중...")
-    prompt = build_reels_prompt(patterns, trends, theme, recent_titles)
+    prompt = build_reels_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
 
     text = ""
     with client.messages.stream(
@@ -387,7 +540,8 @@ def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, th
 # STEP 4 — 피드(카드뉴스) 아이디어 20개 생성
 # ══════════════════════════════════════════
 
-def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list) -> str:
+def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list,
+                      root_kw: str = "", sub_kw: str = "") -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
     week_num = datetime.now().isocalendar()[1]
     goods    = patterns.get("good", [])[:8]
@@ -412,10 +566,19 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
         for item in items:
             trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
 
+    keyword_block = ""
+    if root_kw:
+        keyword_block = f"""
+## 오늘의 핵심 소재 키워드
+- 루트 키워드: **{root_kw}**
+- 서브 키워드: **{sub_kw}**
+→ 20개 아이디어 모두 이 키워드 맥락에서 출발하세요. 막연한 "AI 활용법" 수준의 제목은 금지합니다.
+"""
+
     return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 20개를 생성해주세요.
 
 {ACCOUNT_DNA}
-
+{keyword_block}
 ## 오늘의 테마: {theme['name']}
 {theme['instruction']}
 → 오늘 20개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
@@ -462,14 +625,14 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 - 저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호"""
 
 
-def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict, recent_titles: list) -> str:
-    print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 20개 생성 중...")
-    prompt = build_feed_prompt(patterns, trends, theme, recent_titles)
+def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
+                  recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
+    print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 20개 생성 중... (Haiku)")
+    prompt = build_feed_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
 
     text = ""
     with client.messages.stream(
-        model="claude-opus-4-6",
-        thinking={"type": "enabled", "budget_tokens": 2000},
+        model="claude-haiku-4-5-20251001",
         max_tokens=10000,
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
@@ -585,14 +748,18 @@ def save_fallback(reels: str, feed: str, today_str: str):
 # ══════════════════════════════════════════
 
 def main():
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    now       = datetime.now()
-    theme     = get_daily_theme(now.weekday())
-    week_num  = now.isocalendar()[1]
+    today_str  = datetime.now().strftime("%Y-%m-%d")
+    now        = datetime.now()
+    week_num   = now.isocalendar()[1]
+    this_month = now.strftime("%Y-%m")
+
+    # ── 요일별 테마 (주석 처리 — 키워드 트리로 대체)
+    # theme    = get_daily_theme(now.weekday())
+    # print(f"  📅 오늘 테마: {theme['name']} (#{week_num}주차)")
+    theme = {"name": f"#{week_num}주차", "instruction": ""}  # 키워드 트리 사용 시 placeholder
 
     print(f"\n{'='*55}")
     print(f"  🚀 AI 릴스+피드 플래너 시작 — {today_str}")
-    print(f"  📅 오늘 테마: {theme['name']} (#{week_num}주차)")
     print(f"{'='*55}\n")
 
     if not ANTHROPIC_API_KEY:
@@ -600,20 +767,55 @@ def main():
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # 히스토리 로드 (중복 방지)
+    # ── 히스토리 로드
+    history = {}
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            pass
+
+    # ── 키워드 트리 복원
+    load_keyword_tree_from_history(history)
+
+    # ── 월간 키워드 트리 업데이트 (이번 달 아직 안 했으면)
+    if history.get("last_tree_update") != this_month:
+        history = monthly_keyword_tree_update(history, client)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+
+    # ── 오늘의 루트·서브 키워드 선택
+    day_index  = now.timetuple().tm_yday % len(KEYWORD_TREE)
+    root_entry = KEYWORD_TREE[day_index]
+    raw_sub    = get_sub_keyword(root_entry)
+    root_kw    = root_entry["root"]
+    sub_kw     = refine_sub_keyword(raw_sub, client)
+    print(f"  🔑 오늘의 키워드: [{root_kw}] → {sub_kw}")
+
+    # ── 중복 방지 제목 목록
     recent_titles = load_recent_titles()
     if recent_titles:
         print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개 제목 로드")
 
     patterns, sheet_success = fetch_sheet_data()
     trends  = search_trends()
-    reels   = generate_reels(patterns, trends, client, theme, recent_titles)
-    feed    = generate_feed(patterns, trends, client, theme, recent_titles)
+    reels   = generate_reels(patterns, trends, client, theme, recent_titles, root_kw, sub_kw)
+    feed    = generate_feed(patterns, trends, client, theme, recent_titles, root_kw, sub_kw)
 
-    # 히스토리 저장 (다음 실행에서 중복 방지)
+    # ── 히스토리 저장 (used_subs 포함)
     save_titles_to_history(reels, feed)
+    history["keyword_tree"] = [
+        {"root": e["root"], "modifiers": e["modifiers"],
+         "angles": e["angles"], "used_subs": e["used_subs"]}
+        for e in KEYWORD_TREE
+    ]
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
 
-    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str} {theme['name']}"
+    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str} [{root_kw}]"
     html_body = build_email_html(sheet_success, trends, reels, feed)
 
     try:
