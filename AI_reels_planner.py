@@ -317,11 +317,17 @@ def monthly_keyword_tree_update(history: dict, client: anthropic.Anthropic) -> d
                     messages=[{"role": "user", "content":
                         f"루트 키워드 '{entry['root']}'의 인스타그램 콘텐츠 소재를 다양화하려 합니다.\n"
                         f"지난달 실제 게시된 콘텐츠:\n{content_summary}\n\n"
-                        f"위 데이터를 참고해 새로운 modifiers 3개와 angles 3개를 각각 JSON 배열로만 출력하세요.\n"
-                        f"형식: {{\"modifiers\": [...], \"angles\": [...]}}"}],
+                        f"위 데이터를 참고해 새로운 modifiers 3개와 angles 3개를 제안하세요.\n"
+                        f"반드시 아래 JSON 형식으로만 출력하고 다른 텍스트는 절대 포함하지 마세요:\n"
+                        f'{{\"modifiers\": [\"예시1\", \"예시2\", \"예시3\"], \"angles\": [\"예시1\", \"예시2\", \"예시3\"]}}'}],
                 )
-                import json as _json
-                result = _json.loads(msg.content[0].text.strip())
+                raw_text = msg.content[0].text.strip()
+                # JSON 블록만 추출 (```json ... ``` 또는 { ... } 형태 모두 처리)
+                json_match = re.search(r'\{[^{}]*"modifiers"[^{}]*\}', raw_text, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = json.loads(raw_text)
                 new_mods = result.get("modifiers", [])[:3]
                 new_angs = result.get("angles", [])[:3]
                 if new_mods:
