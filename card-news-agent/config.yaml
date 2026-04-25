@@ -83,7 +83,7 @@ channels:
     sheet_tab: "AI트렌드"
     target: "프리랜서, 크리에이터"
     tone: "친근하고 실용적, 어렵지 않게"
-    topic_guide: "OpenAI(ChatGPT·DALL-E·Sora)·Anthropic(Claude)·Google(Gemini·NotebookLM)·Microsoft(Copilot)·Meta(Llama)·Midjourney·Runway·Perplexity 등 생성형 AI 툴 중심으로 다룰 것. 점유율 상위 5개 또는 그 주 가장 핫한 생성형 AI 툴 1개를 키워드로 사용. 디자인 툴(Figma, Canva 등) 키워드는 사용하지 말 것."
+    topic_guide: "OpenAI(ChatGPT·DALL-E·Sora)·Anthropic(Claude)·Google(Gemini·NotebookLM)·Midjourney·Runway·Perplexity 등 생성형 AI 툴 중심으로 다룰 것. 점유율 상위 5개 또는 그 주 가장 핫한 생성형 AI 툴 1개를 키워드로 사용. 디자인 툴(Figma, Canva 등) 키워드는 사용하지 말 것."
     card01_fields:
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
