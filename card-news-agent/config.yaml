@@ -83,6 +83,7 @@ channels:
     sheet_tab: "AI트렌드"
     target: "프리랜서, 크리에이터"
     tone: "친근하고 실용적, 어렵지 않게"
+    topic_guide: "ChatGPT·Claude·Gemini·Sora 등 점유율 상위 AI 툴 또는 그 주 가장 핫한 AI 툴 1개 중심으로 다룰 것. 디자인 툴(Figma, Canva 등) 키워드는 사용하지 말 것."
     card01_fields:
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"

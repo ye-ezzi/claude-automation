@@ -191,11 +191,14 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
         f"  - {card}: {role}" for card, role in fw["cards"].items()
     )
 
+    topic_guide = channel_cfg.get('topic_guide', '')
+    topic_line = f"\n- 주제 가이드: {topic_guide}" if topic_guide else ""
+
     return f"""당신은 카드뉴스 콘텐츠 전문가입니다. 아래 정보를 바탕으로 카드뉴스 본문을 생성해주세요.
 
 ## 입력 정보
 - 채널 타겟: {channel_cfg.get('target', '')}
-- 톤앤매너: {channel_cfg.get('tone', '')}
+- 톤앤매너: {channel_cfg.get('tone', '')}{topic_line}
 - 페르소나: {row.get('페르소나', '')}
 - 욕구: {row.get('욕구', '')}
 - 기획법: {framework} ({fw['structure']})
