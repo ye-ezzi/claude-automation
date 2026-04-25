@@ -71,17 +71,27 @@ FALLBACK_PATTERNS = {
 }
 
 ACCOUNT_DNA = """## 계정 DNA
-- **타겟:** 20-30대 디자이너, 크리에이터, 프리랜서
-- **주제:** AI 툴 & 워크플로우 / AI 디자인 / 콘텐츠 전략 / 프리랜서 비즈니스 / 생산성 해킹
+- **타겟:** 20-30대 크리에이터, 프리랜서, AI 관심 직장인
+- **주제:** AI 툴 활용법 / AI 워크플로우 / 콘텐츠 전략 / 프리랜서 비즈니스 / 생산성 해킹
 - **톤앤매너:** 친절한 선배 느낌 — 따뜻하고 실용적, "몰랐지?" 모먼트 풍부, 절대 설교하지 않음
 - **훅 스타일:** 팁 선행형, 호기심 유발형, 공감형 — 항상 따뜻하고 직접적
-- **피해야 할 것:** 이론적인 내용, 비싼 장비/팀이 필요한 아이디어, 실행 불가능한 막연한 조언"""
+- **피해야 할 것:** 이론적인 내용, 비싼 장비/팀이 필요한 아이디어, 실행 불가능한 막연한 조언, 디자인 전용 툴(Canva·Figma·Adobe 등) 중심 소재"""
+
+# 허용 AI 툴 목록 (점유율 상위 + 독립 강자)
+AI_TOOL_WHITELIST = {
+    "OpenAI":    ["ChatGPT", "DALL-E", "Sora"],
+    "Anthropic": ["Claude"],
+    "Google":    ["Gemini", "NotebookLM"],
+    "독립":      ["Midjourney", "Runway", "Perplexity"],
+}
+# 프롬프트에 주입할 플랫 리스트
+_AI_TOOLS_FLAT = [t for tools in AI_TOOL_WHITELIST.values() for t in tools]
 
 KEYWORD_TREE = [
     {
         "root": "AI 영상 만들기",
         "tier": 1,
-        "engine_fit": ["Runway", "Pika", "Kling", "Sora"],
+        "engine_fit": ["Sora", "Runway"],
         "modifiers": ["초보자를 위한", "무료로", "5분 만에", "스마트폰으로", "자동으로"],
         "angles":    ["튜토리얼", "전후 비교", "실제 사례", "실수 모음", "도구 추천"],
         "used_subs": [],
@@ -89,7 +99,7 @@ KEYWORD_TREE = [
     {
         "root": "AI 부업",
         "tier": 1,
-        "engine_fit": ["ChatGPT", "Claude", "Midjourney", "Canva AI"],
+        "engine_fit": ["ChatGPT", "Claude", "Midjourney"],
         "modifiers": ["월 100만원", "직장인이", "퇴근 후 2시간", "플랫폼 없이", "자동화로"],
         "angles":    ["수익 인증", "시작 방법", "실패 이유", "도구 세팅", "클라이언트 찾기"],
         "used_subs": [],
@@ -103,18 +113,18 @@ KEYWORD_TREE = [
         "used_subs": [],
     },
     {
-        "root": "AI 크리에이터",
+        "root": "AI 생산성",
         "tier": 1,
-        "engine_fit": ["ChatGPT", "Canva AI", "Notion AI", "ElevenLabs"],
-        "modifiers": ["인스타 성장", "유튜브 자동화", "콘텐츠 대량생산", "브랜딩", "팔로워 늘리는"],
-        "angles":    ["워크플로우 공개", "툴 세팅", "수익 구조", "실수 피하기", "케이스 스터디"],
+        "engine_fit": ["ChatGPT", "Claude", "Gemini", "NotebookLM", "Perplexity"],
+        "modifiers": ["직장인", "프리랜서", "콘텐츠 제작자", "업무 자동화", "리서치"],
+        "angles":    ["워크플로우 공개", "시간 단축", "실수 피하기", "비교", "케이스 스터디"],
         "used_subs": [],
     },
     {
-        "root": "미드저니 사용법",
+        "root": "AI 이미지 생성",
         "tier": 2,
-        "engine_fit": ["Midjourney"],
-        "modifiers": ["처음 쓰는", "고퀄리티", "상업용", "캐릭터 만들기", "브랜드 이미지"],
+        "engine_fit": ["Midjourney", "DALL-E"],
+        "modifiers": ["처음 쓰는", "고퀄리티", "상업용", "캐릭터 만들기", "프롬프트"],
         "angles":    ["프롬프트 공개", "버전 비교", "스타일 모음", "실전 예시", "오류 해결"],
         "used_subs": [],
     },
@@ -494,12 +504,17 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
+## 허용 AI 툴 목록 (이 목록에서만 툴명 사용할 것)
+{", ".join(_AI_TOOLS_FLAT)}
++ 오늘 트렌드에서 가장 많이 언급된 AI 툴 1개 추가 허용
+⚠️ Canva, Figma, Adobe, Notion, ElevenLabs 등 디자인·생산성 전용 툴은 절대 키워드로 사용 금지
+
 ## 아이디어 10개 생성 규칙
-- 최소 3개: 특정 AI 툴/워크플로우 (GPT, Gemini, Canva AI, Midjourney, Firefly 등 툴명 반드시 명시)
-- 최소 2개: AI × 디자인 (이미지 생성, 디자인 자동화, 브랜드킷, 목업 생성 등)
+- 최소 4개: 위 허용 툴 중 하나를 제목에 명시 (ChatGPT, Claude, Gemini, Sora, Runway, Midjourney, DALL-E, Perplexity, NotebookLM)
+- 최소 2개: AI 이미지/영상 생성 (Midjourney, DALL-E, Sora, Runway만 허용)
 - 최소 2개: 프리랜서 실전 (가격 책정, 클라이언트 관리, 포트폴리오, 제안서 작성)
-- 최소 2개: 콘텐츠 제작 / 인스타그램 성장 팁
-- 나머지 1개: 오늘 트렌드 반응형
+- 최소 1개: 오늘 트렌드에서 가장 핫한 AI 툴 관련 타이밍 콘텐츠
+- 나머지: AI 생산성 / 워크플로우 / 콘텐츠 제작
 
 ## 출력 형식 (정확히 이 형식, 10개 모두)
 
@@ -595,12 +610,17 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
+## 허용 AI 툴 목록 (이 목록에서만 툴명 사용할 것)
+{", ".join(_AI_TOOLS_FLAT)}
++ 오늘 트렌드에서 가장 많이 언급된 AI 툴 1개 추가 허용
+⚠️ Canva, Figma, Adobe, Notion, ElevenLabs 등 디자인·생산성 전용 툴은 절대 키워드로 사용 금지
+
 ## 피드 아이디어 10개 생성 규칙
-- 최소 3개: 특정 AI 툴/워크플로우 (툴명 반드시 명시)
-- 최소 2개: AI × 디자인 (이미지 생성, 디자인 자동화 등)
+- 최소 4개: 위 허용 툴 중 하나를 제목에 명시
+- 최소 2개: AI 이미지/영상 생성 (Midjourney, DALL-E, Sora, Runway만 허용)
 - 최소 2개: 프리랜서 실전 팁 (저장하고 싶은 정보성)
-- 최소 2개: 콘텐츠 제작 / 인스타그램 성장
-- 나머지 1개: 오늘 트렌드 반응형
+- 최소 1개: 오늘 트렌드에서 가장 핫한 AI 툴 관련 타이밍 콘텐츠
+- 나머지: AI 생산성 / 워크플로우 / 콘텐츠 제작
 - 체크리스트·비교표·단계별 가이드 형식 선호
 - 커버 카드는 위 시트 썸네일 패턴의 키워드·말투를 참고해서 작성
 - 댓글 키워드 DM 전략 10개 중 최소 3개 적용
