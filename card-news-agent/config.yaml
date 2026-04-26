@@ -105,7 +105,7 @@ channels:
         desc: "# 없이 핵심 키워드 최대 2개 (예: 부수입 절세전략)"
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
-    body_cards: 4
+    body_cards: 3
     body_fields:
       - name: "섹션타이틀"
         desc: "소제목, 15자 이내"
@@ -127,7 +127,7 @@ channels:
         desc: "# 없이 서브 키워드 최대 2개 (예: 콘텐츠마케팅 퍼스널브랜딩)"
       - name: "헤드라인"
         desc: "3줄 헤드라인, 각 줄 7~12자 (줄바꿈은 \\n)"
-    body_cards: 4
+    body_cards: 3
     body_fields:
       - name: "섹션타이틀"
         desc: "소제목, 15자 이내"
