@@ -39,7 +39,8 @@ def get_header(channel_cfg: dict) -> list:
     for i in range(2, 2 + n_body):
         for f in channel_cfg["body_fields"]:
             body.append(f"Card{i:02d} {f['name']}")
-    cta = ["Card06 CTA 유도문구"]
+    cta_num = n_body + 2
+    cta = [f"Card{cta_num:02d} CTA 유도문구"]
     return COMMON_PREFIX + card01 + ["썸네일 상태"] + body + cta + COMMON_SUFFIX
 
 

@@ -183,16 +183,24 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
     body_fields = channel_cfg.get("body_fields", [])
     field_names = [f["name"] for f in body_fields]
     field_descs = {f["name"]: f["desc"] for f in body_fields}
+    n_body = channel_cfg.get("body_cards", 3)
+    cta_key = f"Card{n_body + 2:02d} CTA 유도문구"
+    body_card_keys = [f"Card{i + 2:02d}" for i in range(n_body)]
 
     fields_guide = "\n".join(
         f"  - {name}: {field_descs[name]}" for name in field_names
     )
     card_roles = "\n".join(
-        f"  - {card}: {role}" for card, role in fw["cards"].items()
+        f"  - {card}: {role}" for card, role in list(fw["cards"].items())[:n_body]
     )
 
     topic_guide = channel_cfg.get('topic_guide', '')
     topic_line = f"\n- 주제 가이드: {topic_guide}" if topic_guide else ""
+
+    body_json = "\n".join(
+        f'  "{k}": {{{", ".join(f\'"{n}": "..."\' for n in field_names)}}},'
+        for k in body_card_keys
+    )
 
     return f"""당신은 카드뉴스 콘텐츠 전문가입니다. 아래 정보를 바탕으로 카드뉴스 본문을 생성해주세요.
 
@@ -212,8 +220,8 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
 {fields_guide}
 
 ## 출력 규칙
-- Card02, Card03, Card04, Card05 각각에 대해 아래 필드를 생성하세요
-- Card06 CTA 유도문구: 저장/공유/댓글 행동 유도 (1줄)
+- {', '.join(body_card_keys)} 각각에 대해 아래 필드를 생성하세요
+- {cta_key}: 저장/공유/댓글 행동 유도 (1줄)
 - 컨셉: 이 카드뉴스의 핵심 메시지 (1문장)
 - 기대반응: 독자의 기대 반응 (예: "나도 해봐야겠다 / 저장")
 
@@ -221,11 +229,8 @@ def build_prompt(row: dict, channel_cfg: dict) -> str:
 반드시 아래 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON만:
 
 {{
-  "Card02": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
-  "Card03": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
-  "Card04": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
-  "Card05": {{{", ".join(f'"{n}": "..."' for n in field_names)}}},
-  "Card06 CTA 유도문구": "...",
+{body_json}
+  "{cta_key}": "...",
   "컨셉": "...",
   "기대반응": "..."
 }}"""
@@ -330,13 +335,16 @@ def generate(row: dict, channel_cfg: dict) -> dict:
         if row.get(key, "").strip():
             result[key] = row[key]
 
-    # Card02~05
-    for card_key in ["Card02", "Card03", "Card04", "Card05"]:
+    # Card02~N (body_cards 기준)
+    n_body = channel_cfg.get("body_cards", 3)
+    cta_key = f"Card{n_body + 2:02d} CTA 유도문구"
+    for i in range(n_body):
+        card_key = f"Card{i + 2:02d}"
         if card_key in data:
             for field, value in data[card_key].items():
                 result[f"{card_key} {field}"] = value
 
-    result["Card06 CTA 유도문구"] = data.get("Card06 CTA 유도문구", "")
+    result[cta_key] = data.get(cta_key, "")
     result["컨셉"] = data.get("컨셉", "")
     result["기대반응"] = data.get("기대반응", "")
     result["본문 상태"] = "본문 승인"
