@@ -130,6 +130,20 @@ KEYWORD_TREE = [
     },
 ]
 
+AI_PERSONAS = {
+    "A": "AI를 처음 접하거나 막 시작한 직장인·대학생",
+    "B": "AI를 써본 적 있는 크리에이터·프리랜서",
+    "C": "AI로 이미 작업 중인 전문가·파워유저",
+}
+
+AI_TIERS = {
+    "유입":   "처음 보는 사람도 멈추게. '이런 게 있어?' 반응 유도. 팔로우/저장 유도. 전문용어 최소화.",
+    "전환":   "실전 활용법·워크플로우·수익화. DM/댓글 CTA 필수. 숫자·비교·체크리스트 선호.",
+    "타이밍": "이번 주 핫한 AI 이슈·업데이트. '오늘 이거 나왔어요' 긴박감.",
+}
+
+AI_TIMING_TOPICS: list[str] = []  # 트렌드 수집 후 동적으로 채움
+
 
 # ══════════════════════════════════════════
 # STEP 1 — Google Sheets 데이터 수집
@@ -431,72 +445,119 @@ def save_titles_to_history(reels_output: str, feed_output: str):
     print(f"  📝 히스토리 저장: {len(titles)}개 제목 → {HISTORY_FILE}")
 
 
+def extract_timing_topics_ai(trends: dict) -> None:
+    """RSS 트렌드에서 AI 툴/토픽 감지 → AI_TIMING_TOPICS 갱신."""
+    global AI_TIMING_TOPICS
+    found: list[str] = []
+    for items in trends.values():
+        for item in items:
+            text = item.get("title", "") + " " + item.get("snippet", "")
+            for tool in _AI_TOOLS_FLAT:
+                if tool.lower() in text.lower() and tool not in found:
+                    found.append(tool)
+    AI_TIMING_TOPICS = found[:4]
+    print(f"  🕐 타이밍 토픽: {AI_TIMING_TOPICS or '없음 (루트 키워드로 대체)'}")
+
+
+def select_weekly_slots_ai(history: dict, client: anthropic.Anthropic) -> list[dict]:
+    """유입3 : 전환5 : 타이밍2 = 10개 슬롯 선택."""
+    slots: list[dict] = []
+    used_recent: list[str] = history.get("keywords_used_ai", [])[-40:]
+    all_roots = [e["root"] for e in KEYWORD_TREE]
+
+    tier_plan = [("유입", 3, "A"), ("전환", 5, "B"), ("타이밍", 2, "B")]
+
+    for tier, count, persona in tier_plan:
+        if tier == "타이밍" and AI_TIMING_TOPICS:
+            pool = list(AI_TIMING_TOPICS)
+        else:
+            pool = all_roots
+
+        fresh = [k for k in pool if k not in [u.split("|")[0] for u in used_recent]]
+        pick_pool = fresh if fresh else pool
+
+        for i in range(count):
+            root = pick_pool[i % len(pick_pool)]
+            entry = next((e for e in KEYWORD_TREE if e["root"] == root), None)
+            if entry:
+                raw_sub = get_sub_keyword(entry)
+                sub_kw  = refine_sub_keyword(raw_sub, client)
+            else:
+                sub_kw = root  # 타이밍 토픽은 툴명 그대로
+
+            slots.append({
+                "root_keyword": root,
+                "sub_keyword":  sub_kw,
+                "tier":         tier,
+                "persona":      persona,
+            })
+            history.setdefault("keywords_used_ai", []).append(f"{root}|{sub_kw}")
+
+    print(f"  🔑 슬롯 선택: 유입×3, 전환×5, 타이밍×2 → 총 {len(slots)}개")
+    return slots
+
+
 # ══════════════════════════════════════════
-# STEP 3 — 릴스 아이디어 20개 생성
+# STEP 3 — 릴스 아이디어 10개 생성
 # ══════════════════════════════════════════
 
-def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list,
-                       root_kw: str = "", sub_kw: str = "") -> str:
-    today = datetime.now().strftime("%Y년 %m월 %d일")
+def build_reels_prompt(patterns: dict, trends: dict, slots: list[dict],
+                       recent_titles: list) -> str:
+    today    = datetime.now().strftime("%Y년 %m월 %d일")
+    week_num = datetime.now().isocalendar()[1]
 
-    thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:8]
-    hooks_3sec = patterns.get("hook_3sec", [])[:5]
-    hooks_copy = patterns.get("hook_copy", [])[:5]
-    captions   = patterns.get("caption",   FALLBACK_PATTERNS["caption"])[:4]
-    goods      = patterns.get("good",  [])[:8]
-    bads       = patterns.get("bad",   [])[:8]
+    thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:6]
+    hooks_3sec = patterns.get("hook_3sec", [])[:4]
+    hooks_copy = patterns.get("hook_copy", [])[:4]
+    captions   = patterns.get("caption",   FALLBACK_PATTERNS["caption"])[:3]
+    goods      = patterns.get("good",  [])[:6]
+    bads       = patterns.get("bad",   [])[:6]
 
     trend_lines = []
     for cat, items in trends.items():
         trend_lines.append(f"\n**{cat}:**")
-        for item in items:
-            trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
+        for item in items[:3]:
+            trend_lines.append(f"  - {item['title']}: {item.get('snippet','')[:100]}")
 
-    week_num = datetime.now().isocalendar()[1]
     avoid_block = (
-        "\n".join(f"- {t}" for t in recent_titles[:50])
+        "\n".join(f"- {t}" for t in recent_titles[:40])
         if recent_titles else "- (첫 실행 — 제한 없음)"
     )
     feedback_block = ""
     if goods or bads:
         feedback_block = "\n## 과거 콘텐츠 피드백 (시트 기반)\n"
         if goods:
-            feedback_block += "**잘 된 점 (이 방향으로 더):**\n"
-            feedback_block += "\n".join(f"- {g}" for g in goods) + "\n"
+            feedback_block += "**잘 된 점:**\n" + "\n".join(f"- {g}" for g in goods) + "\n"
         if bads:
-            feedback_block += "**아쉬운 점 (이 실수 반복 금지):**\n"
-            feedback_block += "\n".join(f"- {b}" for b in bads) + "\n"
+            feedback_block += "**아쉬운 점 (반복 금지):**\n" + "\n".join(f"- {b}" for b in bads) + "\n"
 
-    keyword_block = ""
-    if root_kw:
-        keyword_block = f"""
-## 오늘의 핵심 소재 키워드
-- 루트 키워드: **{root_kw}**
-- 서브 키워드: **{sub_kw}**
-→ 10개 아이디어 모두 이 키워드 맥락에서 출발하세요. 툴명·주제어를 구체적으로 명시하고 막연한 "AI 활용법" 수준의 제목은 금지합니다.
-"""
+    slot_lines = []
+    for i, s in enumerate(slots, 1):
+        tier_guide = AI_TIERS.get(s["tier"], "")
+        slot_lines.append(
+            f"#{i} | 루트: {s['root_keyword']} | 서브: {s['sub_keyword']} | "
+            f"tier: {s['tier']} ({tier_guide}) | 타겟: {AI_PERSONAS[s['persona']]}"
+        )
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 릴스 아이디어 10개를 생성해주세요.
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI 인스타그램 계정을 위한 릴스 아이디어 10개를 생성해주세요.
 
 {ACCOUNT_DNA}
-{keyword_block}
-## 오늘의 테마: {theme['name']}
-{theme['instruction']}
-→ 오늘 10개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+
+## 10개 슬롯 (순서대로 생성)
+{chr(10).join(slot_lines)}
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
 {feedback_block}
 ## 실제 시트 패턴
-**썸네일 문구 패턴 (이 키워드 톤·구조·길이를 최대한 유사하게 따라 쓸 것):**
+**썸네일 문구 패턴:**
 {chr(10).join(f"- {t}" for t in thumbnails)}
-→ 위 썸네일들의 공통 키워드, 말투, 숫자/질문/반전 패턴을 분석해서 오늘 아이디어 썸네일에 그대로 녹여주세요.
 
 **첫 3초 훅 패턴:**
-{chr(10).join(f"- {h}" for h in hooks_3sec) if hooks_3sec else "- (시트 데이터 없음 → 폴백 참고)"}
+{chr(10).join(f"- {h}" for h in hooks_3sec) if hooks_3sec else "- (시트 데이터 없음)"}
 
 **후킹 멘트:**
-{chr(10).join(f"- {h}" for h in hooks_copy) if hooks_copy else "- (시트 데이터 없음 → 폴백 참고)"}
+{chr(10).join(f"- {h}" for h in hooks_copy) if hooks_copy else "- (시트 데이터 없음)"}
 
 **캡션 구조:**
 {chr(10).join(f"- {c}" for c in captions)}
@@ -504,17 +565,16 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
-## 허용 AI 툴 목록 (이 목록에서만 툴명 사용할 것)
-{", ".join(_AI_TOOLS_FLAT)}
-+ 오늘 트렌드에서 가장 많이 언급된 AI 툴 1개 추가 허용
-⚠️ Canva, Figma, Adobe, Notion, ElevenLabs 등 디자인·생산성 전용 툴은 절대 키워드로 사용 금지
+## AI 툴 사용 가이드
+허용 툴: {", ".join(_AI_TOOLS_FLAT)}
+- 툴명은 소재에 자연스럽게 맞을 때만 사용 (필수 아님)
+- Canva, Figma, Adobe, Notion 등 디자인·생산성 전용 툴은 사용 금지
 
-## 아이디어 10개 생성 규칙
-- 최소 4개: 위 허용 툴 중 하나를 제목에 명시 (ChatGPT, Claude, Gemini, Sora, Runway, Midjourney, DALL-E, Perplexity, NotebookLM)
-- 최소 2개: AI 이미지/영상 생성 (Midjourney, DALL-E, Sora, Runway만 허용)
-- 최소 2개: 프리랜서 실전 (가격 책정, 클라이언트 관리, 포트폴리오, 제안서 작성)
-- 최소 1개: 오늘 트렌드에서 가장 핫한 AI 툴 관련 타이밍 콘텐츠
-- 나머지: AI 생산성 / 워크플로우 / 콘텐츠 제작
+## 아이디어 생성 규칙
+- 각 슬롯의 tier 가이드와 타겟 페르소나를 반드시 반영할 것
+- 유입 슬롯: 입문자도 이해 가능한 언어, 팔로우/저장 유도
+- 전환 슬롯: 실전 수치·워크플로우, 댓글 CTA 필수
+- 타이밍 슬롯: 이번 주 트렌드 반응, 긴박감 있는 제목
 
 ## 출력 형식 (정확히 이 형식, 10개 모두)
 
@@ -537,10 +597,10 @@ def build_reels_prompt(patterns: dict, trends: dict, theme: dict, recent_titles:
 - 캡션 오프닝은 공감 또는 감탄 → 핵심 팁 → CTA 순서"""
 
 
-def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
-                   recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
-    print("\n🤖 [STEP 3] 릴스 아이디어 10개 생성 중...")
-    prompt = build_reels_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
+def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic,
+                   slots: list[dict], recent_titles: list) -> str:
+    print("\n🤖 [STEP 3] 릴스 아이디어 10개 생성 중... (Opus)")
+    prompt = build_reels_prompt(patterns, trends, slots, recent_titles)
 
     text = ""
     with client.messages.stream(
@@ -558,72 +618,70 @@ def generate_reels(patterns: dict, trends: dict, client: anthropic.Anthropic, th
 
 
 # ══════════════════════════════════════════
-# STEP 4 — 피드(카드뉴스) 아이디어 20개 생성
+# STEP 4 — 피드(카드뉴스) 아이디어 10개 생성
 # ══════════════════════════════════════════
 
-def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: list,
-                      root_kw: str = "", sub_kw: str = "") -> str:
-    today = datetime.now().strftime("%Y년 %m월 %d일")
+def build_feed_prompt(patterns: dict, trends: dict, slots: list[dict],
+                      recent_titles: list) -> str:
+    today    = datetime.now().strftime("%Y년 %m월 %d일")
     week_num = datetime.now().isocalendar()[1]
-    goods    = patterns.get("good", [])[:8]
-    bads     = patterns.get("bad",  [])[:8]
+    thumbnails = patterns.get("thumbnail", FALLBACK_PATTERNS["thumbnail"])[:6]
+    goods    = patterns.get("good", [])[:6]
+    bads     = patterns.get("bad",  [])[:6]
     avoid_block = (
-        "\n".join(f"- {t}" for t in recent_titles[:50])
+        "\n".join(f"- {t}" for t in recent_titles[:40])
         if recent_titles else "- (첫 실행 — 제한 없음)"
     )
     feedback_block = ""
     if goods or bads:
-        feedback_block = "\n## 과거 콘텐츠 피드백 (시트 기반)\n"
+        feedback_block = "\n## 과거 콘텐츠 피드백\n"
         if goods:
-            feedback_block += "**잘 된 점 (이 방향으로 더):**\n"
-            feedback_block += "\n".join(f"- {g}" for g in goods) + "\n"
+            feedback_block += "**잘 된 점:**\n" + "\n".join(f"- {g}" for g in goods) + "\n"
         if bads:
-            feedback_block += "**아쉬운 점 (이 실수 반복 금지):**\n"
-            feedback_block += "\n".join(f"- {b}" for b in bads) + "\n"
+            feedback_block += "**아쉬운 점 (반복 금지):**\n" + "\n".join(f"- {b}" for b in bads) + "\n"
 
     trend_lines = []
     for cat, items in trends.items():
         trend_lines.append(f"\n**{cat}:**")
-        for item in items:
-            trend_lines.append(f"  - {item['title']}: {item['snippet'][:120]}")
+        for item in items[:3]:
+            trend_lines.append(f"  - {item['title']}: {item.get('snippet','')[:100]}")
 
-    keyword_block = ""
-    if root_kw:
-        keyword_block = f"""
-## 오늘의 핵심 소재 키워드
-- 루트 키워드: **{root_kw}**
-- 서브 키워드: **{sub_kw}**
-→ 10개 아이디어 모두 이 키워드 맥락에서 출발하세요. 막연한 "AI 활용법" 수준의 제목은 금지합니다.
-"""
+    slot_lines = []
+    for i, s in enumerate(slots, 1):
+        tier_guide = AI_TIERS.get(s["tier"], "")
+        slot_lines.append(
+            f"#{i} | 루트: {s['root_keyword']} | 서브: {s['sub_keyword']} | "
+            f"tier: {s['tier']} ({tier_guide}) | 타겟: {AI_PERSONAS[s['persona']]}"
+        )
 
-    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI & 크리에이티브 도구 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 10개를 생성해주세요.
+    return f"""당신은 10년 경력의 콘텐츠 디렉터입니다. 오늘({today}, {week_num}주차) AI 인스타그램 계정을 위한 피드(카드뉴스/캐러셀) 아이디어 10개를 생성해주세요.
 
 {ACCOUNT_DNA}
-{keyword_block}
-## 오늘의 테마: {theme['name']}
-{theme['instruction']}
-→ 오늘 10개 아이디어의 각도, 접근법, 포맷을 이 테마 중심으로 조율하세요.
+
+## 10개 슬롯 (순서대로 생성)
+{chr(10).join(slot_lines)}
 
 ## 최근 21일 다룬 주제 (반드시 피하거나 완전히 다른 각도로)
 {avoid_block}
 {feedback_block}
+## 썸네일 패턴
+{chr(10).join(f"- {t}" for t in thumbnails)}
+
 ## 오늘의 트렌드
 {"".join(trend_lines)}
 
-## 허용 AI 툴 목록 (이 목록에서만 툴명 사용할 것)
-{", ".join(_AI_TOOLS_FLAT)}
-+ 오늘 트렌드에서 가장 많이 언급된 AI 툴 1개 추가 허용
-⚠️ Canva, Figma, Adobe, Notion, ElevenLabs 등 디자인·생산성 전용 툴은 절대 키워드로 사용 금지
+## AI 툴 사용 가이드
+허용 툴: {", ".join(_AI_TOOLS_FLAT)}
+- 툴명은 소재에 자연스럽게 맞을 때만 사용 (필수 아님)
+- Canva, Figma, Adobe, Notion 등 디자인·생산성 전용 툴은 사용 금지
 
-## 피드 아이디어 10개 생성 규칙
-- 최소 4개: 위 허용 툴 중 하나를 제목에 명시
-- 최소 2개: AI 이미지/영상 생성 (Midjourney, DALL-E, Sora, Runway만 허용)
-- 최소 2개: 프리랜서 실전 팁 (저장하고 싶은 정보성)
-- 최소 1개: 오늘 트렌드에서 가장 핫한 AI 툴 관련 타이밍 콘텐츠
-- 나머지: AI 생산성 / 워크플로우 / 콘텐츠 제작
+## 아이디어 생성 규칙
+- 각 슬롯의 tier 가이드와 타겟 페르소나를 반드시 반영
+- 유입 슬롯: 입문자도 이해 가능한 언어, 저장 유도
+- 전환 슬롯: 실전 수치·워크플로우, 댓글 CTA 필수
+- 타이밍 슬롯: 이번 주 트렌드 반응, 긴박감
 - 체크리스트·비교표·단계별 가이드 형식 선호
-- 커버 카드는 위 시트 썸네일 패턴의 키워드·말투를 참고해서 작성
-- 댓글 키워드 DM 전략 10개 중 최소 3개 적용
+- 댓글 키워드 CTA: 10개 중 최소 3개 적용
 
 ## 출력 형식 (정확히 이 형식, 10개 모두)
 
@@ -632,29 +690,28 @@ def build_feed_prompt(patterns: dict, trends: dict, theme: dict, recent_titles: 
 **피드 아이디어 #N**
 
 1. **아이디어 제목:** [짧고 명확한 제목]
-2. **카드 구성:** [슬라이드 수 — 예: 5장, 7장. 최대 10장]
-3. **커버 카드 카피:** [첫 번째 슬라이드 훅 문구. 한 줄로 시선 잡기. 숫자·질문·반전 중 하나 활용]
+2. **카드 구성:** [슬라이드 수 — 최대 10장]
+3. **커버 카드 카피:** [숫자·질문·반전 중 하나로 시선 잡기]
 4. **슬라이드별 내용 요약:**
    - 1장: [커버 훅]
-   - 2장: [본문 핵심 내용 1]
-   - 3장: [본문 핵심 내용 2]
-   - ...마지막 장: [정리 + CTA]
-5. **디자인 방향:** [배경색 톤, 폰트 무드, 핵심 시각 요소 — 1-2줄]
-6. **캡션 첫 줄:** [피드 캡션 첫 문장 — 검색 유입과 저장 유도. 댓글 키워드 CTA 적극 활용]
+   - 2장: [핵심 내용 1]
+   - 3장: [핵심 내용 2]
+   - 마지막 장: [정리 + CTA]
+5. **디자인 방향:** [배경색 톤, 핵심 시각 요소 — 1줄]
+6. **캡션 첫 줄:** [검색 유입 + 저장 유도. 댓글 키워드 CTA 적용]
 
 ---
 
 **중요 원칙:**
 - 커버는 숫자 또는 질문으로 반드시 시작
-- 댓글 키워드 CTA: "댓글에 'XX' 남겨주시면 자료 보내드립니다" 패턴 10개 중 최소 3개 적용
-- 모든 아이디어는 스마트폰 + 무료 툴(Canva 등)로 제작 가능해야 함
-- 저장율 높이는 체크리스트·비교표·단계별 가이드 형식 선호"""
+- 모든 아이디어는 스마트폰 + 무료 툴로 제작 가능해야 함
+- 저장율 높이는 체크리스트·비교표·단계별 가이드 선호"""
 
 
-def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic, theme: dict,
-                  recent_titles: list, root_kw: str = "", sub_kw: str = "") -> str:
+def generate_feed(patterns: dict, trends: dict, client: anthropic.Anthropic,
+                  slots: list[dict], recent_titles: list) -> str:
     print("\n🤖 [STEP 4] 피드(카드뉴스) 아이디어 10개 생성 중... (Haiku)")
-    prompt = build_feed_prompt(patterns, trends, theme, recent_titles, root_kw, sub_kw)
+    prompt = build_feed_prompt(patterns, trends, slots, recent_titles)
 
     text = ""
     with client.messages.stream(
@@ -702,10 +759,32 @@ def content_to_html(raw: str, icon: str, id_prefix: str) -> str:
     return html
 
 
-def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str) -> str:
+def build_slot_badges_ai(slots: list[dict]) -> str:
+    TIER_BADGE = {
+        "유입":   '<span style="background:#2563EB;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🔵 유입</span>',
+        "전환":   '<span style="background:#16A34A;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🟢 전환</span>',
+        "타이밍": '<span style="background:#EA580C;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🟠 타이밍</span>',
+    }
+    rows = []
+    for i, s in enumerate(slots, 1):
+        tier_b = TIER_BADGE.get(s["tier"], "")
+        kw_b   = f'<span style="font-size:11px;color:#6B7280;margin-left:6px;">#{i} {s["root_keyword"]} / {s["sub_keyword"]}</span>'
+        rows.append(f'<div style="margin:4px 0;">{tier_b}{kw_b}</div>')
+    return "\n".join(rows)
+
+
+def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str,
+                     slots: list[dict] | None = None) -> str:
     today_kr    = datetime.now().strftime("%Y년 %m월 %d일")
     now_str     = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
     data_status = "✅ 실시간 시트 데이터 반영" if sheet_success else "⚠️ 폴백 데이터 사용"
+    slot_section = ""
+    if slots:
+        slot_section = f"""
+  <div style="background:#F0FFF4;border:1px solid #BBF7D0;padding:12px 16px;margin-bottom:24px;border-radius:8px;">
+    <p style="margin:0 0 8px;font-size:13px;font-weight:bold;color:#065F46;">📋 슬롯 구성 (유입 3 : 전환 5 : 타이밍 2)</p>
+    {build_slot_badges_ai(slots)}
+  </div>"""
 
     return f"""<!DOCTYPE html>
 <html><body style="font-family:'Apple SD Gothic Neo',Arial,sans-serif;max-width:760px;margin:auto;padding:24px;color:#1a1a1a;background:#fff;">
@@ -714,10 +793,10 @@ def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str) -
     🎬 AI/콘텐츠 — 릴스 10 + 피드 10 — {today_kr}
   </h2>
 
-  <div style="background:#F0F7FF;border-left:4px solid #4A90D9;padding:10px 16px;margin-bottom:28px;border-radius:4px;">
+  <div style="background:#F0F7FF;border-left:4px solid #4A90D9;padding:10px 16px;margin-bottom:20px;border-radius:4px;">
     <p style="margin:0;font-size:14px;"><strong>데이터 상태:</strong> {data_status}</p>
   </div>
-
+  {slot_section}
   <h2 style="color:#2D2D2D;font-size:18px;border-bottom:2px solid #EBEBEB;padding-bottom:8px;margin-bottom:16px;">
     📈 오늘의 트렌드
   </h2>
@@ -762,9 +841,9 @@ def save_fallback(reels: str, feed: str, today_str: str):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, f"reels-ai-{today_str}.md")
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"# AI/콘텐츠 — {today_str}\n\n## 릴스 아이디어 20개\n\n")
+        f.write(f"# AI/콘텐츠 — {today_str}\n\n## 릴스 아이디어 10개\n\n")
         f.write(reels)
-        f.write("\n\n## 피드(카드뉴스) 아이디어 20개\n\n")
+        f.write("\n\n## 피드(카드뉴스) 아이디어 10개\n\n")
         f.write(feed)
     print(f"  💾 폴백 저장 완료: {path}")
 
@@ -779,13 +858,8 @@ def main():
     week_num   = now.isocalendar()[1]
     this_month = now.strftime("%Y-%m")
 
-    # ── 요일별 테마 (주석 처리 — 키워드 트리로 대체)
-    # theme    = get_daily_theme(now.weekday())
-    # print(f"  📅 오늘 테마: {theme['name']} (#{week_num}주차)")
-    theme = {"name": f"#{week_num}주차", "instruction": ""}  # 키워드 트리 사용 시 placeholder
-
     print(f"\n{'='*55}")
-    print(f"  🚀 AI 릴스+피드 플래너 시작 — {today_str}")
+    print(f"  🚀 AI 릴스+피드 플래너 시작 — {today_str} (#{week_num}주차)")
     print(f"{'='*55}\n")
 
     if not ANTHROPIC_API_KEY:
@@ -793,7 +867,8 @@ def main():
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # ── 히스토리 로드
+    # 1. 히스토리 로드
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     history = {}
     if os.path.exists(HISTORY_FILE):
         try:
@@ -802,47 +877,51 @@ def main():
         except Exception:
             pass
 
-    # ── 키워드 트리 복원
+    # 2. 키워드 트리 복원
     load_keyword_tree_from_history(history)
 
-    # ── 월간 키워드 트리 업데이트 (이번 달 아직 안 했으면)
+    # 3. 월간 키워드 트리 업데이트
     if history.get("last_tree_update") != this_month:
+        print("🌿 [STEP 1] 월간 키워드 트리 업데이트 중...")
         history = monthly_keyword_tree_update(history, client)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
 
-    # ── 오늘의 루트·서브 키워드 선택
-    day_index  = now.timetuple().tm_yday % len(KEYWORD_TREE)
-    root_entry = KEYWORD_TREE[day_index]
-    raw_sub    = get_sub_keyword(root_entry)
-    root_kw    = root_entry["root"]
-    sub_kw     = refine_sub_keyword(raw_sub, client)
-    print(f"  🔑 오늘의 키워드: [{root_kw}] → {sub_kw}")
+    # 4. 트렌드 수집 + 타이밍 토픽 추출
+    print("\n🔍 [STEP 2] 트렌드 수집 중...")
+    trends = search_trends()
+    extract_timing_topics_ai(trends)
 
-    # ── 중복 방지 제목 목록
+    # 5. 시트 데이터 수집
+    print("\n📊 [STEP 3] Google Sheets 데이터 수집 중...")
+    patterns, sheet_success = fetch_sheet_data()
+
+    # 6. 슬롯 선택 (유입3:전환5:타이밍2)
+    print("\n🔑 [STEP 4] 슬롯 선택 중...")
+    slots = select_weekly_slots_ai(history, client)
+
+    # 7. 최근 제목 로드 (중복 방지)
     recent_titles = load_recent_titles()
     if recent_titles:
-        print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개 제목 로드")
+        print(f"  🚫 최근 21일 회피 목록: {len(recent_titles)}개")
 
-    patterns, sheet_success = fetch_sheet_data()
-    trends  = search_trends()
-    reels   = generate_reels(patterns, trends, client, theme, recent_titles, root_kw, sub_kw)
-    feed    = generate_feed(patterns, trends, client, theme, recent_titles, root_kw, sub_kw)
+    # 8. 릴스 + 피드 생성
+    reels = generate_reels(patterns, trends, client, slots, recent_titles)
+    feed  = generate_feed(patterns, trends, client, slots, recent_titles)
 
-    # ── 히스토리 저장 (used_subs 포함)
+    # 9. 히스토리 저장
     save_titles_to_history(reels, feed)
     history["keyword_tree"] = [
         {"root": e["root"], "modifiers": e["modifiers"],
          "angles": e["angles"], "used_subs": e["used_subs"]}
         for e in KEYWORD_TREE
     ]
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-    subject   = f"[AI/콘텐츠] 오늘의 릴스 20 + 피드 20 — {today_str} [{root_kw}]"
-    html_body = build_email_html(sheet_success, trends, reels, feed)
+    # 10. 이메일 발송
+    subject   = f"[AI/콘텐츠] 릴스 10 + 피드 10 — {today_str}"
+    html_body = build_email_html(sheet_success, trends, reels, feed, slots)
 
     try:
         send_gmail(subject, html_body)
