@@ -47,8 +47,6 @@ ACCOUNT_URLS = [
     "https://www.instagram.com/thesocialcreativesclub/reels/",
     "https://www.instagram.com/inspiredmediaco/reels/",
     "https://www.instagram.com/creatorcollege_/reels/",
-    "https://www.instagram.com/garyvee/reels/",
-    "https://www.instagram.com/hormozi/reels/",
     "https://www.instagram.com/jun_yuh/reels/",
     "https://www.instagram.com/personalbrandlaunch/reels/",
 ]
@@ -58,8 +56,6 @@ MONITOR_ACCOUNTS = [
     "https://www.instagram.com/thesocialcreativesclub/reels/",
     "https://www.instagram.com/inspiredmediaco/reels/",
     "https://www.instagram.com/creatorcollege_/reels/",
-    "https://www.instagram.com/garyvee/reels/",
-    "https://www.instagram.com/hormozi/reels/",
     "https://www.instagram.com/jun_yuh/reels/",
     "https://www.instagram.com/personalbrandlaunch/reels/",
 ]
