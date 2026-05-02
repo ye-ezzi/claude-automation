@@ -787,7 +787,7 @@ def build_slot_badges_ai(slots: list[dict]) -> str:
 
 
 def build_email_html(sheet_success: bool, trends: dict, reels: str, feed: str,
-                     slots: list[dict] | None = None) -> str:
+                     slots=None) -> str:
     today_kr    = datetime.now().strftime("%Y년 %m월 %d일")
     now_str     = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
     data_status = "✅ 실시간 시트 데이터 반영" if sheet_success else "⚠️ 폴백 데이터 사용"
