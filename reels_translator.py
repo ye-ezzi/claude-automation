@@ -60,6 +60,16 @@ MONITOR_ACCOUNTS = [
     "https://www.instagram.com/personalbrandlaunch/reels/",
 ]
 
+# 캡션 리포트 전용 벤치마크 계정 (Whisper 없이 캡션+링크만)
+BENCHMARK_ACCOUNTS = [
+    "https://www.instagram.com/stevenwommack/reels/",
+    "https://www.instagram.com/createcontent.club/reels/",
+    "https://www.instagram.com/socialcontentking/reels/",
+    "https://www.instagram.com/mitchell_tms/reels/",
+    "https://www.instagram.com/thebranding.ai/reels/",
+    "https://www.instagram.com/bradfordmarais/reels/",
+]
+
 # ══════════════════════════════════════════
 
 
@@ -160,10 +170,12 @@ def get_reels_metadata(account_url: str, max_items: int = FETCH_LIMIT) -> list:
             candidates = item.get("image_versions2", {}).get("candidates", [])
             thumbnail = candidates[0].get("url", "") if candidates else ""
 
+            full_caption = (item.get("caption") or {}).get("text", "")
             reels.append({
                 "id":          shortcode,
                 "url":         f"https://www.instagram.com/reel/{shortcode}/",
-                "title":       (item.get("caption") or {}).get("text", "")[:80],
+                "title":       full_caption[:80],
+                "caption":     full_caption,
                 "view_count":  item.get("view_count") or item.get("play_count") or 0,
                 "upload_date": upload_date,
                 "thumbnail":   thumbnail,
@@ -200,6 +212,25 @@ def filter_recent(reels: list, months: int = MAX_AGE_MONTHS) -> list:
 def sort_by_views(reels: list) -> list:
     """조회수 내림차순 정렬"""
     return sorted(reels, key=lambda r: r["view_count"], reverse=True)
+
+
+def try_ocr_thumbnail(thumbnail_url: str) -> str:
+    """썸네일 이미지에서 텍스트 OCR (pytesseract 선택적 의존)"""
+    try:
+        import pytesseract
+        from PIL import Image
+        import io
+        s = get_ig_session()
+        resp = s.get(thumbnail_url, timeout=10)
+        if resp.status_code != 200:
+            return ""
+        img = Image.open(io.BytesIO(resp.content))
+        text = pytesseract.image_to_string(img, lang="eng").strip()
+        return " ".join(text.split())[:300] if text else ""
+    except ImportError:
+        return "[OCR 불가: pytesseract/Pillow 미설치]"
+    except Exception:
+        return ""
 
 
 # ─── 음성 처리 ───────────────────────────────────
@@ -458,6 +489,99 @@ def run_monitor(model, target_date: str = None):
         print("\n업로드된 게시물 없음 — 이메일 발송 생략")
 
 
+def build_caption_report_html(account_results: list) -> str:
+    sections = ""
+    for account_url, reels in account_results:
+        username = _url_to_username(account_url)
+        cards = ""
+        for r in reels:
+            upload_str = ""
+            if r.get("upload_date"):
+                try:
+                    d = datetime.strptime(r["upload_date"], "%Y%m%d")
+                    upload_str = d.strftime("%Y.%m.%d")
+                except Exception:
+                    pass
+            thumbnail = f'<img src="{r["thumbnail"]}" style="width:100%;max-height:200px;object-fit:cover;" />' if r.get("thumbnail") else ""
+            ocr_block = f'<p style="margin:6px 0;color:#777;font-size:11px;">🖼️ 이미지 텍스트: {r["thumbnail_text"]}</p>' if r.get("thumbnail_text") else ""
+            caption_text = r.get("caption", "(캡션 없음)") or "(캡션 없음)"
+            translated_text = r.get("translated", "(번역 없음)") or "(번역 없음)"
+            cards += f"""
+            <div style="margin-bottom:20px;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+              {thumbnail}
+              <div style="padding:14px;">
+                <a href="{r['url']}" style="color:#4A90D9;font-size:12px;word-break:break-all;">{r['url']}</a>
+                {"<p style='color:#888;font-size:11px;margin:4px 0;'>📅 " + upload_str + "</p>" if upload_str else ""}
+                {ocr_block}
+                <p style="margin:10px 0 4px;color:#888;font-size:11px;">📝 원문 캡션</p>
+                <p style="margin:0 0 12px;font-size:13px;color:#333;line-height:1.7;white-space:pre-wrap;">{caption_text[:600]}</p>
+                <p style="margin:0 0 4px;color:#888;font-size:11px;">🇰🇷 한국어 번역</p>
+                <p style="margin:0;font-size:13px;color:#1a1a1a;line-height:1.7;background:#F7F9FC;padding:10px;border-radius:6px;">{translated_text}</p>
+              </div>
+            </div>"""
+        sections += f"""
+        <div style="margin-bottom:40px;">
+          <h3 style="color:#2D2D2D;border-left:4px solid #E87040;padding-left:10px;margin-bottom:16px;">@{username}</h3>
+          {cards}
+        </div>"""
+    return f"""
+    <html><body style="font-family:Apple SD Gothic Neo,Arial,sans-serif;max-width:720px;margin:auto;padding:24px;">
+      <h2 style="color:#2D2D2D;border-bottom:2px solid #E87040;padding-bottom:8px;">📋 벤치마크 캡션 리포트</h2>
+      <p style="color:#888;font-size:12px;">수집 일시: {datetime.now().strftime('%Y년 %m월 %d일 %H:%M')}</p>
+      {sections}
+    </body></html>"""
+
+
+def run_caption_report():
+    """벤치마크 계정 최신 3개 릴스 캡션+링크 수집 (Whisper 없음)"""
+    print(f"\n📋  캡션 리포트 수집 시작...")
+    account_results = []
+
+    for account_url in BENCHMARK_ACCOUNTS:
+        username = _url_to_username(account_url)
+        print(f"\n[계정] @{username}")
+
+        reels = get_reels_metadata(account_url, max_items=3)
+        print(f"  → 수집된 릴스: {len(reels)}개")
+
+        processed = []
+        for reel in reels:
+            caption = reel.get("caption", "")
+            translated = ""
+            if caption:
+                try:
+                    translated = translate_to_korean(caption[:500])
+                except Exception as e:
+                    translated = f"(번역 실패: {e})"
+
+            thumbnail_text = ""
+            if reel.get("thumbnail"):
+                print(f"  🖼️  썸네일 OCR 시도...")
+                thumbnail_text = try_ocr_thumbnail(reel["thumbnail"])
+
+            processed.append({
+                "url":            reel["url"],
+                "thumbnail":      reel.get("thumbnail", ""),
+                "caption":        caption,
+                "translated":     translated,
+                "thumbnail_text": thumbnail_text,
+                "upload_date":    reel.get("upload_date", ""),
+            })
+            time.sleep(1)
+
+        account_results.append((account_url, processed))
+        time.sleep(3)
+
+    if account_results:
+        print("\n📬  캡션 리포트 이메일 발송 중...")
+        subject = f"📋 벤치마크 캡션 리포트 — {datetime.now().strftime('%Y.%m.%d')}"
+        html = build_caption_report_html(account_results)
+        send_gmail(subject, html)
+        print("✅  리포트 발송 완료!")
+    else:
+        print("\n수집된 릴스 없음")
+
+
 def main():
     os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -468,6 +592,11 @@ def main():
         idx = sys.argv.index("--date")
         if idx + 1 < len(sys.argv):
             target_date = sys.argv[idx + 1]
+
+    # --benchmark 모드는 Whisper 불필요
+    if mode == "--benchmark":
+        run_caption_report()
+        return
 
     print("🔄  Whisper 모델 로딩 중...")
     model = whisper.load_model(WHISPER_MODEL)
